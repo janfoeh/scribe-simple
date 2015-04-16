@@ -1,3533 +1,6 @@
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.Scribe = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-(function (global){
-define('plugins/core/set-root-p-element',[],function () {
-
-  /**
-   * Sets the default content of the scribe so that each carriage return creates
-   * a P.
-   */
-
-  
-
-  return function () {
-    return function (scribe) {
-      // The content might have already been set, in which case we don't want
-      // to apply.
-      if (scribe.getHTML().trim() === '') {
-        /**
-         * We have to begin with the following HTML, because otherwise some
-         * browsers(?) will position the caret outside of the P when the scribe is
-         * focused.
-         */
-        scribe.setContent('<p><br></p>');
-      }
-    };
-  };
-
-});
-
-define('lodash-amd/modern/array/last',[], function() {
-
-  /** Used as a safe reference for `undefined` in pre-ES5 environments. */
-  var undefined;
-
-  /**
-   * Gets the last element of `array`.
-   *
-   * @static
-   * @memberOf _
-   * @category Array
-   * @param {Array} array The array to query.
-   * @returns {*} Returns the last element of `array`.
-   * @example
-   *
-   * _.last([1, 2, 3]);
-   * // => 3
-   */
-  function last(array) {
-    var length = array ? array.length : 0;
-    return length ? array[length - 1] : undefined;
-  }
-
-  return last;
-});
-
-define('plugins/core/formatters/html/enforce-p-elements',[
-  'lodash-amd/modern/array/last'
-], function (
-  last
-) {
-
-  /**
-   * Chrome and Firefox: Upon pressing backspace inside of a P, the
-   * browser deletes the paragraph element, leaving the caret (and any
-   * content) outside of any P.
-   *
-   * Firefox: Erasing across multiple paragraphs, or outside of a
-   * whole paragraph (e.g. by ‘Select All’) will leave content outside
-   * of any P.
-   *
-   * Entering a new line in a pristine state state will insert
-   * `<div>`s (in Chrome) or `<br>`s (in Firefox) where previously we
-   * had `<p>`'s. This patches the behaviour of delete/backspace so
-   * that we do not end up in a pristine state.
-   */
-
-  
-
-  /**
-   * Wrap consecutive inline elements and text nodes in a P element.
-   */
-  function wrapChildNodes(scribe, parentNode) {
-    var groups = Array.prototype.reduce.call(parentNode.childNodes,
-                                             function (accumulator, binChildNode) {
-      var group = last(accumulator);
-      if (! group) {
-        startNewGroup();
-      } else {
-        var isBlockGroup = scribe.element.isBlockElement(group[0]);
-        if (isBlockGroup === scribe.element.isBlockElement(binChildNode)) {
-          group.push(binChildNode);
-        } else {
-          startNewGroup();
-        }
-      }
-
-      return accumulator;
-
-      function startNewGroup() {
-        var newGroup = [binChildNode];
-        accumulator.push(newGroup);
-      }
-    }, []);
-
-    var consecutiveInlineElementsAndTextNodes = groups.filter(function (group) {
-      var isBlockGroup = scribe.element.isBlockElement(group[0]);
-      return ! isBlockGroup;
-    });
-
-    consecutiveInlineElementsAndTextNodes.forEach(function (nodes) {
-      var pElement = document.createElement('p');
-      nodes[0].parentNode.insertBefore(pElement, nodes[0]);
-      nodes.forEach(function (node) {
-        pElement.appendChild(node);
-      });
-    });
-
-    parentNode._isWrapped = true;
-  }
-
-  // Traverse the tree, wrapping child nodes as we go.
-  function traverse(scribe, parentNode) {
-    var treeWalker = document.createTreeWalker(parentNode, NodeFilter.SHOW_ELEMENT, null, false);
-    var node = treeWalker.firstChild();
-
-    // FIXME: does this recurse down?
-
-    while (node) {
-      // TODO: At the moment we only support BLOCKQUOTEs. See failing
-      // tests.
-      if (node.nodeName === 'BLOCKQUOTE' && ! node._isWrapped) {
-        wrapChildNodes(scribe, node);
-        traverse(scribe, parentNode);
-        break;
-      }
-      node = treeWalker.nextSibling();
-    }
-  }
-
-  return function () {
-    return function (scribe) {
-
-      scribe.registerHTMLFormatter('normalize', function (html) {
-        /**
-         * Ensure P mode.
-         *
-         * Wrap any orphan text nodes in a P element.
-         */
-        // TODO: This should be configurable and also correct markup such as
-        // `<ul>1</ul>` to <ul><li>2</li></ul>`. See skipped tests.
-        // TODO: This should probably be a part of HTML Janitor, or some other
-        // formatter.
-        var bin = document.createElement('div');
-        bin.innerHTML = html;
-
-        wrapChildNodes(scribe, bin);
-        traverse(scribe, bin);
-
-        return bin.innerHTML;
-      });
-
-    };
-  };
-
-});
-
-define('lodash-amd/modern/internal/indexOfNaN',[], function() {
-
-  /**
-   * Gets the index at which the first occurrence of `NaN` is found in `array`.
-   * If `fromRight` is provided elements of `array` are iterated from right to left.
-   *
-   * @private
-   * @param {Array} array The array to search.
-   * @param {number} fromIndex The index to search from.
-   * @param {boolean} [fromRight] Specify iterating from right to left.
-   * @returns {number} Returns the index of the matched `NaN`, else `-1`.
-   */
-  function indexOfNaN(array, fromIndex, fromRight) {
-    var length = array.length,
-        index = fromIndex + (fromRight ? 0 : -1);
-
-    while ((fromRight ? index-- : ++index < length)) {
-      var other = array[index];
-      if (other !== other) {
-        return index;
-      }
-    }
-    return -1;
-  }
-
-  return indexOfNaN;
-});
-
-define('lodash-amd/modern/internal/baseIndexOf',['./indexOfNaN'], function(indexOfNaN) {
-
-  /**
-   * The base implementation of `_.indexOf` without support for binary searches.
-   *
-   * @private
-   * @param {Array} array The array to search.
-   * @param {*} value The value to search for.
-   * @param {number} fromIndex The index to search from.
-   * @returns {number} Returns the index of the matched value, else `-1`.
-   */
-  function baseIndexOf(array, value, fromIndex) {
-    if (value !== value) {
-      return indexOfNaN(array, fromIndex);
-    }
-    var index = fromIndex - 1,
-        length = array.length;
-
-    while (++index < length) {
-      if (array[index] === value) {
-        return index;
-      }
-    }
-    return -1;
-  }
-
-  return baseIndexOf;
-});
-
-define('lodash-amd/modern/internal/isLength',[], function() {
-
-  /**
-   * Used as the maximum length of an array-like value.
-   * See the [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-number.max_safe_integer)
-   * for more details.
-   */
-  var MAX_SAFE_INTEGER = Math.pow(2, 53) - 1;
-
-  /**
-   * Checks if `value` is a valid array-like length.
-   *
-   * **Note:** This function is based on ES `ToLength`. See the
-   * [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-tolength)
-   * for more details.
-   *
-   * @private
-   * @param {*} value The value to check.
-   * @returns {boolean} Returns `true` if `value` is a valid length, else `false`.
-   */
-  function isLength(value) {
-    return typeof value == 'number' && value > -1 && value % 1 == 0 && value <= MAX_SAFE_INTEGER;
-  }
-
-  return isLength;
-});
-
-define('lodash-amd/modern/internal/baseToString',[], function() {
-
-  /**
-   * Converts `value` to a string if it is not one. An empty string is returned
-   * for `null` or `undefined` values.
-   *
-   * @private
-   * @param {*} value The value to process.
-   * @returns {string} Returns the string.
-   */
-  function baseToString(value) {
-    if (typeof value == 'string') {
-      return value;
-    }
-    return value == null ? '' : (value + '');
-  }
-
-  return baseToString;
-});
-
-define('lodash-amd/modern/string/escapeRegExp',['../internal/baseToString'], function(baseToString) {
-
-  /**
-   * Used to match `RegExp` special characters.
-   * See this [article on `RegExp` characters](http://www.regular-expressions.info/characters.html#special)
-   * for more details.
-   */
-  var reRegExpChars = /[.*+?^${}()|[\]\/\\]/g,
-      reHasRegExpChars = RegExp(reRegExpChars.source);
-
-  /**
-   * Escapes the `RegExp` special characters "\", "^", "$", ".", "|", "?", "*",
-   * "+", "(", ")", "[", "]", "{" and "}" in `string`.
-   *
-   * @static
-   * @memberOf _
-   * @category String
-   * @param {string} [string=''] The string to escape.
-   * @returns {string} Returns the escaped string.
-   * @example
-   *
-   * _.escapeRegExp('[lodash](https://lodash.com/)');
-   * // => '\[lodash\]\(https://lodash\.com/\)'
-   */
-  function escapeRegExp(string) {
-    string = baseToString(string);
-    return (string && reHasRegExpChars.test(string))
-      ? string.replace(reRegExpChars, '\\$&')
-      : string;
-  }
-
-  return escapeRegExp;
-});
-
-define('lodash-amd/modern/internal/isObjectLike',[], function() {
-
-  /**
-   * Checks if `value` is object-like.
-   *
-   * @private
-   * @param {*} value The value to check.
-   * @returns {boolean} Returns `true` if `value` is object-like, else `false`.
-   */
-  function isObjectLike(value) {
-    return (value && typeof value == 'object') || false;
-  }
-
-  return isObjectLike;
-});
-
-define('lodash-amd/modern/lang/isNative',['../string/escapeRegExp', '../internal/isObjectLike'], function(escapeRegExp, isObjectLike) {
-
-  /** `Object#toString` result references. */
-  var funcTag = '[object Function]';
-
-  /** Used to detect host constructors (Safari > 5). */
-  var reHostCtor = /^\[object .+?Constructor\]$/;
-
-  /** Used for native method references. */
-  var objectProto = Object.prototype;
-
-  /** Used to resolve the decompiled source of functions. */
-  var fnToString = Function.prototype.toString;
-
-  /**
-   * Used to resolve the `toStringTag` of values.
-   * See the [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-object.prototype.tostring)
-   * for more details.
-   */
-  var objToString = objectProto.toString;
-
-  /** Used to detect if a method is native. */
-  var reNative = RegExp('^' +
-    escapeRegExp(objToString)
-    .replace(/toString|(function).*?(?=\\\()| for .+?(?=\\\])/g, '$1.*?') + '$'
-  );
-
-  /**
-   * Checks if `value` is a native function.
-   *
-   * @static
-   * @memberOf _
-   * @category Lang
-   * @param {*} value The value to check.
-   * @returns {boolean} Returns `true` if `value` is a native function, else `false`.
-   * @example
-   *
-   * _.isNative(Array.prototype.push);
-   * // => true
-   *
-   * _.isNative(_);
-   * // => false
-   */
-  function isNative(value) {
-    if (value == null) {
-      return false;
-    }
-    if (objToString.call(value) == funcTag) {
-      return reNative.test(fnToString.call(value));
-    }
-    return (isObjectLike(value) && reHostCtor.test(value)) || false;
-  }
-
-  return isNative;
-});
-
-define('lodash-amd/modern/lang/isArray',['../internal/isLength', './isNative', '../internal/isObjectLike'], function(isLength, isNative, isObjectLike) {
-
-  /** `Object#toString` result references. */
-  var arrayTag = '[object Array]';
-
-  /** Used for native method references. */
-  var objectProto = Object.prototype;
-
-  /**
-   * Used to resolve the `toStringTag` of values.
-   * See the [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-object.prototype.tostring)
-   * for more details.
-   */
-  var objToString = objectProto.toString;
-
-  /* Native method references for those with the same name as other `lodash` methods. */
-  var nativeIsArray = isNative(nativeIsArray = Array.isArray) && nativeIsArray;
-
-  /**
-   * Checks if `value` is classified as an `Array` object.
-   *
-   * @static
-   * @memberOf _
-   * @category Lang
-   * @param {*} value The value to check.
-   * @returns {boolean} Returns `true` if `value` is correctly classified, else `false`.
-   * @example
-   *
-   * _.isArray([1, 2, 3]);
-   * // => true
-   *
-   * _.isArray(function() { return arguments; }());
-   * // => false
-   */
-  var isArray = nativeIsArray || function(value) {
-    return (isObjectLike(value) && isLength(value.length) && objToString.call(value) == arrayTag) || false;
-  };
-
-  return isArray;
-});
-
-define('lodash-amd/modern/lang/isString',['../internal/isObjectLike'], function(isObjectLike) {
-
-  /** `Object#toString` result references. */
-  var stringTag = '[object String]';
-
-  /** Used for native method references. */
-  var objectProto = Object.prototype;
-
-  /**
-   * Used to resolve the `toStringTag` of values.
-   * See the [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-object.prototype.tostring)
-   * for more details.
-   */
-  var objToString = objectProto.toString;
-
-  /**
-   * Checks if `value` is classified as a `String` primitive or object.
-   *
-   * @static
-   * @memberOf _
-   * @category Lang
-   * @param {*} value The value to check.
-   * @returns {boolean} Returns `true` if `value` is correctly classified, else `false`.
-   * @example
-   *
-   * _.isString('abc');
-   * // => true
-   *
-   * _.isString(1);
-   * // => false
-   */
-  function isString(value) {
-    return typeof value == 'string' || (isObjectLike(value) && objToString.call(value) == stringTag) || false;
-  }
-
-  return isString;
-});
-
-define('lodash-amd/modern/internal/baseValues',[], function() {
-
-  /**
-   * The base implementation of `_.values` and `_.valuesIn` which creates an
-   * array of `object` property values corresponding to the property names
-   * returned by `keysFunc`.
-   *
-   * @private
-   * @param {Object} object The object to query.
-   * @param {Array} props The property names to get values for.
-   * @returns {Object} Returns the array of property values.
-   */
-  function baseValues(object, props) {
-    var index = -1,
-        length = props.length,
-        result = Array(length);
-
-    while (++index < length) {
-      result[index] = object[props[index]];
-    }
-    return result;
-  }
-
-  return baseValues;
-});
-
-define('lodash-amd/modern/lang/isObject',[], function() {
-
-  /**
-   * Checks if `value` is the language type of `Object`.
-   * (e.g. arrays, functions, objects, regexes, `new Number(0)`, and `new String('')`)
-   *
-   * **Note:** See the [ES5 spec](https://es5.github.io/#x8) for more details.
-   *
-   * @static
-   * @memberOf _
-   * @category Lang
-   * @param {*} value The value to check.
-   * @returns {boolean} Returns `true` if `value` is an object, else `false`.
-   * @example
-   *
-   * _.isObject({});
-   * // => true
-   *
-   * _.isObject([1, 2, 3]);
-   * // => true
-   *
-   * _.isObject(1);
-   * // => false
-   */
-  function isObject(value) {
-    // Avoid a V8 JIT bug in Chrome 19-20.
-    // See https://code.google.com/p/v8/issues/detail?id=2291 for more details.
-    var type = typeof value;
-    return type == 'function' || (value && type == 'object') || false;
-  }
-
-  return isObject;
-});
-
-define('lodash-amd/modern/lang/isArguments',['../internal/isLength', '../internal/isObjectLike'], function(isLength, isObjectLike) {
-
-  /** Used as a safe reference for `undefined` in pre-ES5 environments. */
-  var undefined;
-
-  /** `Object#toString` result references. */
-  var argsTag = '[object Arguments]';
-
-  /** Used for native method references. */
-  var objectProto = Object.prototype;
-
-  /**
-   * Used to resolve the `toStringTag` of values.
-   * See the [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-object.prototype.tostring)
-   * for more details.
-   */
-  var objToString = objectProto.toString;
-
-  /**
-   * Checks if `value` is classified as an `arguments` object.
-   *
-   * @static
-   * @memberOf _
-   * @category Lang
-   * @param {*} value The value to check.
-   * @returns {boolean} Returns `true` if `value` is correctly classified, else `false`.
-   * @example
-   *
-   * _.isArguments(function() { return arguments; }());
-   * // => true
-   *
-   * _.isArguments([1, 2, 3]);
-   * // => false
-   */
-  function isArguments(value) {
-    var length = isObjectLike(value) ? value.length : undefined;
-    return (isLength(length) && objToString.call(value) == argsTag) || false;
-  }
-
-  return isArguments;
-});
-
-define('lodash-amd/modern/internal/isIndex',[], function() {
-
-  /**
-   * Used as the maximum length of an array-like value.
-   * See the [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-number.max_safe_integer)
-   * for more details.
-   */
-  var MAX_SAFE_INTEGER = Math.pow(2, 53) - 1;
-
-  /**
-   * Checks if `value` is a valid array-like index.
-   *
-   * @private
-   * @param {*} value The value to check.
-   * @param {number} [length=MAX_SAFE_INTEGER] The upper bounds of a valid index.
-   * @returns {boolean} Returns `true` if `value` is a valid index, else `false`.
-   */
-  function isIndex(value, length) {
-    value = +value;
-    length = length == null ? MAX_SAFE_INTEGER : length;
-    return value > -1 && value % 1 == 0 && value < length;
-  }
-
-  return isIndex;
-});
-
-define('lodash-amd/modern/internal/root',[], function() {
-
-  /** Used to determine if values are of the language type `Object`. */
-  var objectTypes = {
-    'function': true,
-    'object': true
-  };
-
-  /** Detect free variable `exports`. */
-  var freeExports = objectTypes[typeof exports] && exports && !exports.nodeType && exports;
-
-  /** Detect free variable `module`. */
-  var freeModule = objectTypes[typeof module] && module && !module.nodeType && module;
-
-  /** Detect free variable `global` from Node.js. */
-  var freeGlobal = freeExports && freeModule && typeof global == 'object' && global;
-
-  /** Detect free variable `window`. */
-  var freeWindow = objectTypes[typeof window] && window;
-
-  /**
-   * Used as a reference to the global object.
-   *
-   * The `this` value is used if it is the global object to avoid Greasemonkey's
-   * restricted `window` object, otherwise the `window` object is used.
-   */
-  var root = freeGlobal || ((freeWindow !== (this && this.window)) && freeWindow) || this;
-
-  return root;
-});
-
-define('lodash-amd/modern/support',['./lang/isNative', './internal/root'], function(isNative, root) {
-
-  /** Used to detect functions containing a `this` reference. */
-  var reThis = /\bthis\b/;
-
-  /** Used for native method references. */
-  var objectProto = Object.prototype;
-
-  /** Used to detect DOM support. */
-  var document = (document = root.window) && document.document;
-
-  /** Native method references. */
-  var propertyIsEnumerable = objectProto.propertyIsEnumerable;
-
-  /**
-   * An object environment feature flags.
-   *
-   * @static
-   * @memberOf _
-   * @type Object
-   */
-  var support = {};
-
-  (function(x) {
-
-    /**
-     * Detect if functions can be decompiled by `Function#toString`
-     * (all but Firefox OS certified apps, older Opera mobile browsers, and
-     * the PlayStation 3; forced `false` for Windows 8 apps).
-     *
-     * @memberOf _.support
-     * @type boolean
-     */
-    support.funcDecomp = !isNative(root.WinRTError) && reThis.test(function() { return this; });
-
-    /**
-     * Detect if `Function#name` is supported (all but IE).
-     *
-     * @memberOf _.support
-     * @type boolean
-     */
-    support.funcNames = typeof Function.name == 'string';
-
-    /**
-     * Detect if the DOM is supported.
-     *
-     * @memberOf _.support
-     * @type boolean
-     */
-    try {
-      support.dom = document.createDocumentFragment().nodeType === 11;
-    } catch(e) {
-      support.dom = false;
-    }
-
-    /**
-     * Detect if `arguments` object indexes are non-enumerable.
-     *
-     * In Firefox < 4, IE < 9, PhantomJS, and Safari < 5.1 `arguments` object
-     * indexes are non-enumerable. Chrome < 25 and Node.js < 0.11.0 treat
-     * `arguments` object indexes as non-enumerable and fail `hasOwnProperty`
-     * checks for indexes that exceed their function's formal parameters with
-     * associated values of `0`.
-     *
-     * @memberOf _.support
-     * @type boolean
-     */
-    try {
-      support.nonEnumArgs = !propertyIsEnumerable.call(arguments, 1);
-    } catch(e) {
-      support.nonEnumArgs = true;
-    }
-  }(0, 0));
-
-  return support;
-});
-
-define('lodash-amd/modern/object/keysIn',['../lang/isArguments', '../lang/isArray', '../internal/isIndex', '../internal/isLength', '../lang/isObject', '../support'], function(isArguments, isArray, isIndex, isLength, isObject, support) {
-
-  /** Used for native method references. */
-  var objectProto = Object.prototype;
-
-  /** Used to check objects for own properties. */
-  var hasOwnProperty = objectProto.hasOwnProperty;
-
-  /**
-   * Creates an array of the own and inherited enumerable property names of `object`.
-   *
-   * **Note:** Non-object values are coerced to objects.
-   *
-   * @static
-   * @memberOf _
-   * @category Object
-   * @param {Object} object The object to inspect.
-   * @returns {Array} Returns the array of property names.
-   * @example
-   *
-   * function Foo() {
-   *   this.a = 1;
-   *   this.b = 2;
-   * }
-   *
-   * Foo.prototype.c = 3;
-   *
-   * _.keysIn(new Foo);
-   * // => ['a', 'b', 'c'] (iteration order is not guaranteed)
-   */
-  function keysIn(object) {
-    if (object == null) {
-      return [];
-    }
-    if (!isObject(object)) {
-      object = Object(object);
-    }
-    var length = object.length;
-    length = (length && isLength(length) &&
-      (isArray(object) || (support.nonEnumArgs && isArguments(object))) && length) || 0;
-
-    var Ctor = object.constructor,
-        index = -1,
-        isProto = typeof Ctor == 'function' && Ctor.prototype === object,
-        result = Array(length),
-        skipIndexes = length > 0;
-
-    while (++index < length) {
-      result[index] = (index + '');
-    }
-    for (var key in object) {
-      if (!(skipIndexes && isIndex(key, length)) &&
-          !(key == 'constructor' && (isProto || !hasOwnProperty.call(object, key)))) {
-        result.push(key);
-      }
-    }
-    return result;
-  }
-
-  return keysIn;
-});
-
-define('lodash-amd/modern/internal/shimKeys',['../lang/isArguments', '../lang/isArray', './isIndex', './isLength', '../object/keysIn', '../support'], function(isArguments, isArray, isIndex, isLength, keysIn, support) {
-
-  /** Used for native method references. */
-  var objectProto = Object.prototype;
-
-  /** Used to check objects for own properties. */
-  var hasOwnProperty = objectProto.hasOwnProperty;
-
-  /**
-   * A fallback implementation of `Object.keys` which creates an array of the
-   * own enumerable property names of `object`.
-   *
-   * @private
-   * @param {Object} object The object to inspect.
-   * @returns {Array} Returns the array of property names.
-   */
-  function shimKeys(object) {
-    var props = keysIn(object),
-        propsLength = props.length,
-        length = propsLength && object.length;
-
-    var allowIndexes = length && isLength(length) &&
-      (isArray(object) || (support.nonEnumArgs && isArguments(object)));
-
-    var index = -1,
-        result = [];
-
-    while (++index < propsLength) {
-      var key = props[index];
-      if ((allowIndexes && isIndex(key, length)) || hasOwnProperty.call(object, key)) {
-        result.push(key);
-      }
-    }
-    return result;
-  }
-
-  return shimKeys;
-});
-
-define('lodash-amd/modern/object/keys',['../internal/isLength', '../lang/isNative', '../lang/isObject', '../internal/shimKeys'], function(isLength, isNative, isObject, shimKeys) {
-
-  /* Native method references for those with the same name as other `lodash` methods. */
-  var nativeKeys = isNative(nativeKeys = Object.keys) && nativeKeys;
-
-  /**
-   * Creates an array of the own enumerable property names of `object`.
-   *
-   * **Note:** Non-object values are coerced to objects. See the
-   * [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-object.keys)
-   * for more details.
-   *
-   * @static
-   * @memberOf _
-   * @category Object
-   * @param {Object} object The object to inspect.
-   * @returns {Array} Returns the array of property names.
-   * @example
-   *
-   * function Foo() {
-   *   this.a = 1;
-   *   this.b = 2;
-   * }
-   *
-   * Foo.prototype.c = 3;
-   *
-   * _.keys(new Foo);
-   * // => ['a', 'b'] (iteration order is not guaranteed)
-   *
-   * _.keys('hi');
-   * // => ['0', '1']
-   */
-  var keys = !nativeKeys ? shimKeys : function(object) {
-    if (object) {
-      var Ctor = object.constructor,
-          length = object.length;
-    }
-    if ((typeof Ctor == 'function' && Ctor.prototype === object) ||
-        (typeof object != 'function' && (length && isLength(length)))) {
-      return shimKeys(object);
-    }
-    return isObject(object) ? nativeKeys(object) : [];
-  };
-
-  return keys;
-});
-
-define('lodash-amd/modern/object/values',['../internal/baseValues', './keys'], function(baseValues, keys) {
-
-  /**
-   * Creates an array of the own enumerable property values of `object`.
-   *
-   * **Note:** Non-object values are coerced to objects.
-   *
-   * @static
-   * @memberOf _
-   * @category Object
-   * @param {Object} object The object to query.
-   * @returns {Array} Returns the array of property values.
-   * @example
-   *
-   * function Foo() {
-   *   this.a = 1;
-   *   this.b = 2;
-   * }
-   *
-   * Foo.prototype.c = 3;
-   *
-   * _.values(new Foo);
-   * // => [1, 2] (iteration order is not guaranteed)
-   *
-   * _.values('hi');
-   * // => ['h', 'i']
-   */
-  function values(object) {
-    return baseValues(object, keys(object));
-  }
-
-  return values;
-});
-
-define('lodash-amd/modern/collection/includes',['../internal/baseIndexOf', '../lang/isArray', '../internal/isLength', '../lang/isString', '../object/values'], function(baseIndexOf, isArray, isLength, isString, values) {
-
-  /* Native method references for those with the same name as other `lodash` methods. */
-  var nativeMax = Math.max;
-
-  /**
-   * Checks if `value` is in `collection` using `SameValueZero` for equality
-   * comparisons. If `fromIndex` is negative, it is used as the offset from
-   * the end of `collection`.
-   *
-   * **Note:** `SameValueZero` comparisons are like strict equality comparisons,
-   * e.g. `===`, except that `NaN` matches `NaN`. See the
-   * [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-samevaluezero)
-   * for more details.
-   *
-   * @static
-   * @memberOf _
-   * @alias contains, include
-   * @category Collection
-   * @param {Array|Object|string} collection The collection to search.
-   * @param {*} target The value to search for.
-   * @param {number} [fromIndex=0] The index to search from.
-   * @returns {boolean} Returns `true` if a matching element is found, else `false`.
-   * @example
-   *
-   * _.includes([1, 2, 3], 1);
-   * // => true
-   *
-   * _.includes([1, 2, 3], 1, 2);
-   * // => false
-   *
-   * _.includes({ 'user': 'fred', 'age': 40 }, 'fred');
-   * // => true
-   *
-   * _.includes('pebbles', 'eb');
-   * // => true
-   */
-  function includes(collection, target, fromIndex) {
-    var length = collection ? collection.length : 0;
-    if (!isLength(length)) {
-      collection = values(collection);
-      length = collection.length;
-    }
-    if (!length) {
-      return false;
-    }
-    if (typeof fromIndex == 'number') {
-      fromIndex = fromIndex < 0 ? nativeMax(length + fromIndex, 0) : (fromIndex || 0);
-    } else {
-      fromIndex = 0;
-    }
-    return (typeof collection == 'string' || !isArray(collection) && isString(collection))
-      ? (fromIndex < length && collection.indexOf(target, fromIndex) > -1)
-      : (baseIndexOf(collection, target, fromIndex) > -1);
-  }
-
-  return includes;
-});
-
-define('lodash-amd/modern/collection/contains',["./includes"], function(includes) {
-  return includes;
-});
-
-define('element',['lodash-amd/modern/collection/contains'], function (contains) {
-
-  
-
-  var blockElementNames = ['ADDRESS', 'ARTICLE', 'ASIDE', 'AUDIO', 'BLOCKQUOTE', 'CANVAS', 'DD',
-                           'DIV', 'FIELDSET', 'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1',
-                           'H2', 'H3', 'H4', 'H5', 'H6', 'HEADER', 'HGROUP', 'HR', 'LI',
-                           'NOSCRIPT', 'OL', 'OUTPUT', 'P', 'PRE', 'SECTION', 'TABLE', 'TD',
-                           'TH', 'TFOOT', 'UL', 'VIDEO'];
-  function isBlockElement(node) {
-    return contains(blockElementNames, node.nodeName);
-  }
-
-  function isSelectionMarkerNode(node) {
-    return (node.nodeType === Node.ELEMENT_NODE && node.className === 'scribe-marker');
-  }
-
-  function isCaretPositionNode(node) {
-    return (node.nodeType === Node.ELEMENT_NODE && node.className === 'caret-position');
-  }
-
-  function unwrap(node, childNode) {
-    while (childNode.childNodes.length > 0) {
-      node.insertBefore(childNode.childNodes[0], childNode);
-    }
-    node.removeChild(childNode);
-  }
-
-  return {
-    isBlockElement: isBlockElement,
-    isSelectionMarkerNode: isSelectionMarkerNode,
-    isCaretPositionNode: isCaretPositionNode,
-    unwrap: unwrap
-  };
-
-});
-
-define('plugins/core/formatters/html/ensure-selectable-containers',[
-    '../../../../element',
-    'lodash-amd/modern/collection/contains'
-  ], function (
-    element,
-    contains
-  ) {
-
-  /**
-   * Chrome and Firefox: All elements need to contain either text or a `<br>` to
-   * remain selectable. (Unless they have a width and height explicitly set with
-   * CSS(?), as per: http://jsbin.com/gulob/2/edit?html,css,js,output)
-   */
-
-  
-
-  // http://www.w3.org/TR/html-markup/syntax.html#syntax-elements
-  var html5VoidElements = ['AREA', 'BASE', 'BR', 'COL', 'COMMAND', 'EMBED', 'HR', 'IMG', 'INPUT', 'KEYGEN', 'LINK', 'META', 'PARAM', 'SOURCE', 'TRACK', 'WBR'];
-
-  function parentHasNoTextContent(element, node) {
-    if (element.isCaretPositionNode(node)) {
-      return true;
-    } else {
-      return node.parentNode.textContent.trim() === '';
-    }
-  }
-
-
-  function traverse(element, parentNode) {
-    // Instead of TreeWalker, which gets confused when the BR is added to the dom,
-    // we recursively traverse the tree to look for an empty node that can have childNodes
-
-    var node = parentNode.firstElementChild;
-
-    function isEmpty(node) {
-
-      if ((node.children.length === 0 && element.isBlockElement(node))
-        || (node.children.length === 1 && element.isSelectionMarkerNode(node.children[0]))) {
-         return true;
-      }
-
-      // Do not insert BR in empty non block elements with parent containing text
-      if (!element.isBlockElement(node) && node.children.length === 0) {
-        return parentHasNoTextContent(element, node);
-      }
-
-      return false;
-    }
-
-    while (node) {
-      if (!element.isSelectionMarkerNode(node)) {
-        // Find any node that contains no child *elements*, or just contains
-        // whitespace, and is not self-closing
-        if (isEmpty(node) &&
-          node.textContent.trim() === '' &&
-          !contains(html5VoidElements, node.nodeName)) {
-          node.appendChild(document.createElement('br'));
-        } else if (node.children.length > 0) {
-          traverse(element, node);
-        }
-      }
-      node = node.nextElementSibling;
-    }
-  }
-
-  return function () {
-    return function (scribe) {
-
-      scribe.registerHTMLFormatter('normalize', function (html) {
-        var bin = document.createElement('div');
-        bin.innerHTML = html;
-
-        traverse(scribe.element, bin);
-
-        return bin.innerHTML;
-      });
-
-    };
-  };
-
-});
-
-define('plugins/core/inline-elements-mode',[],function () {
-
-  
-
-  // TODO: abstract
-  function hasContent(rootNode) {
-    var treeWalker = document.createTreeWalker(rootNode, NodeFilter.SHOW_ALL, null, false);
-
-    while (treeWalker.nextNode()) {
-      if (treeWalker.currentNode) {
-        // If the node is a non-empty element or has content
-        if (~['br'].indexOf(treeWalker.currentNode.nodeName.toLowerCase()) || treeWalker.currentNode.length > 0) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  return function () {
-    return function (scribe) {
-      /**
-       * Firefox has a `insertBrOnReturn` command, but this is not a part of
-       * any standard. One day we might have an `insertLineBreak` command,
-       * proposed by this spec:
-       * https://dvcs.w3.org/hg/editing/raw-file/tip/editing.html#the-insertlinebreak-command
-       * As per: http://jsbin.com/IQUraXA/1/edit?html,js,output
-       */
-      scribe.el.addEventListener('keydown', function (event) {
-        if (event.keyCode === 13) { // enter
-          var selection = new scribe.api.Selection();
-          var range = selection.range;
-
-          var blockNode = selection.getContaining(function (node) {
-            return node.nodeName === 'LI' || (/^(H[1-6])$/).test(node.nodeName);
-          });
-
-          if (! blockNode) {
-            event.preventDefault();
-
-            scribe.transactionManager.run(function () {
-              /**
-               * Firefox: Delete the bogus BR as we insert another one later.
-               * We have to do this because otherwise the browser will believe
-               * there is content to the right of the selection.
-               */
-              if (scribe.el.lastChild.nodeName === 'BR') {
-                scribe.el.removeChild(scribe.el.lastChild);
-              }
-
-              var brNode = document.createElement('br');
-
-              range.insertNode(brNode);
-              // After inserting the BR into the range is no longer collapsed, so
-              // we have to collapse it again.
-              // TODO: Older versions of Firefox require this argument even though
-              // it is supposed to be optional. Proxy/polyfill?
-              range.collapse(false);
-
-              /**
-               * Chrome: If there is no right-hand side content, inserting a BR
-               * will not appear to create a line break.
-               * Firefox: If there is no right-hand side content, inserting a BR
-               * will appear to create a weird "half-line break".
-               *
-               * Possible solution: Insert two BRs.
-               * ✓ Chrome: Inserting two BRs appears to create a line break.
-               * Typing will then delete the bogus BR element.
-               * Firefox: Inserting two BRs will create two line breaks.
-               *
-               * Solution: Only insert two BRs if there is no right-hand
-               * side content.
-               *
-               * If the user types on a line immediately after a BR element,
-               * Chrome will replace the BR element with the typed characters,
-               * whereas Firefox will not. Thus, to satisfy Firefox we have to
-               * insert a bogus BR element on initialization (see below).
-               */
-
-              var contentToEndRange = range.cloneRange();
-              contentToEndRange.setEndAfter(scribe.el.lastChild, 0);
-
-              // Get the content from the range to the end of the heading
-              var contentToEndFragment = contentToEndRange.cloneContents();
-
-              // If there is not already a right hand side content we need to
-              // insert a bogus BR element.
-              if (! hasContent(contentToEndFragment)) {
-                var bogusBrNode = document.createElement('br');
-                range.insertNode(bogusBrNode);
-              }
-
-              var newRange = range.cloneRange();
-
-              newRange.setStartAfter(brNode, 0);
-              newRange.setEndAfter(brNode, 0);
-
-              selection.selection.removeAllRanges();
-              selection.selection.addRange(newRange);
-            });
-          }
-        }
-      }.bind(this));
-
-      if (scribe.getHTML().trim() === '') {
-        // Bogus BR element for Firefox — see explanation above.
-        // TODO: also append when consumer sets the content manually.
-        // TODO: hide when the user calls `getHTML`?
-        scribe.setContent('');
-      }
-    };
-  };
-});
-
-define('plugins/core/plugins',[
-  './set-root-p-element',
-  './formatters/html/enforce-p-elements',
-  './formatters/html/ensure-selectable-containers',
-  './inline-elements-mode'
-], function (
-  setRootPElement,
-  enforcePElements,
-  ensureSelectableContainers,
-  inlineElementsMode
-) {
-  
-
-  return {
-    setRootPElement: setRootPElement,
-    enforcePElements: enforcePElements,
-    ensureSelectableContainers: ensureSelectableContainers,
-    inlineElementsMode: inlineElementsMode
-  };
-});
-
-define('plugins/core/commands/indent',[],function () {
-
-  
-
-  return function () {
-    return function (scribe) {
-      var indentCommand = new scribe.api.Command('indent');
-
-      indentCommand.queryEnabled = function () {
-        /**
-         * FIXME: Chrome nests ULs inside of ULs
-         * Currently we just disable the command when the selection is inside of
-         * a list.
-         * As per: http://jsbin.com/ORikUPa/3/edit?html,js,output
-         */
-        var selection = new scribe.api.Selection();
-        var listElement = selection.getContaining(function (element) {
-          return element.nodeName === 'UL' || element.nodeName === 'OL';
-        });
-
-        return scribe.api.Command.prototype.queryEnabled.call(this) && scribe.allowsBlockElements() && ! listElement;
-      };
-
-      scribe.commands.indent = indentCommand;
-    };
-  };
-
-});
-
-define('plugins/core/commands/insert-list',[],function () {
-
-  /**
-   * If the paragraphs option is set to true, then when the list is
-   * unapplied, ensure that we enter a P element.
-   */
-
-  
-
-  return function () {
-    return function (scribe) {
-      var InsertListCommand = function (commandName) {
-        scribe.api.Command.call(this, commandName);
-      };
-
-      InsertListCommand.prototype = Object.create(scribe.api.Command.prototype);
-      InsertListCommand.prototype.constructor = InsertListCommand;
-
-      InsertListCommand.prototype.execute = function (value) {
-        function splitList(listItemElements) {
-          if (listItemElements.length > 0) {
-            var newListNode = document.createElement(listNode.nodeName);
-
-            listItemElements.forEach(function (listItemElement) {
-              newListNode.appendChild(listItemElement);
-            });
-
-            listNode.parentNode.insertBefore(newListNode, listNode.nextElementSibling);
-          }
-        }
-
-        if (this.queryState()) {
-          var selection = new scribe.api.Selection();
-          var range = selection.range;
-
-          var listNode = selection.getContaining(function (node) {
-            return node.nodeName === 'OL' || node.nodeName === 'UL';
-          });
-
-          var listItemElement = selection.getContaining(function (node) {
-            return node.nodeName === 'LI';
-          });
-
-          scribe.transactionManager.run(function () {
-            if (listItemElement) {
-              var nextListItemElements = (new scribe.api.Node(listItemElement)).nextAll();
-
-              /**
-               * If we are not at the start or end of a UL/OL, we have to
-               * split the node and insert the P(s) in the middle.
-               */
-              splitList(nextListItemElements);
-
-              /**
-               * Insert a paragraph in place of the list item.
-               */
-
-              selection.placeMarkers();
-
-              var pNode = document.createElement('p');
-              pNode.innerHTML = listItemElement.innerHTML;
-
-              listNode.parentNode.insertBefore(pNode, listNode.nextElementSibling);
-              listItemElement.parentNode.removeChild(listItemElement);
-            } else {
-              /**
-               * When multiple list items are selected, we replace each list
-               * item with a paragraph.
-               */
-
-              // We can't query for list items in the selection so we loop
-              // through them all and find the intersection ourselves.
-              var selectedListItemElements = Array.prototype.map.call(listNode.querySelectorAll('li'),
-                function (listItemElement) {
-                return range.intersectsNode(listItemElement) && listItemElement;
-              }).filter(function (listItemElement) {
-                // TODO: identity
-                return listItemElement;
-              });
-              var lastSelectedListItemElement = selectedListItemElements.slice(-1)[0];
-              var listItemElementsAfterSelection = (new scribe.api.Node(lastSelectedListItemElement)).nextAll();
-
-              /**
-               * If we are not at the start or end of a UL/OL, we have to
-               * split the node and insert the P(s) in the middle.
-               */
-              splitList(listItemElementsAfterSelection);
-
-              // Store the caret/range positioning inside of the list items so
-              // we can restore it from the newly created P elements soon
-              // afterwards.
-              selection.placeMarkers();
-
-              var documentFragment = document.createDocumentFragment();
-              selectedListItemElements.forEach(function (listItemElement) {
-                var pElement = document.createElement('p');
-                pElement.innerHTML = listItemElement.innerHTML;
-                documentFragment.appendChild(pElement);
-              });
-
-              // Insert the Ps
-              listNode.parentNode.insertBefore(documentFragment, listNode.nextElementSibling);
-
-              // Remove the LIs
-              selectedListItemElements.forEach(function (listItemElement) {
-                listItemElement.parentNode.removeChild(listItemElement);
-              });
-            }
-
-            // If the list is now empty, clean it up.
-            if (listNode.childNodes.length === 0) {
-              listNode.parentNode.removeChild(listNode);
-            }
-
-            selection.selectMarkers();
-          }.bind(this));
-        } else {
-          scribe.api.Command.prototype.execute.call(this, value);
-        }
-      };
-
-      InsertListCommand.prototype.queryEnabled = function () {
-        return scribe.api.Command.prototype.queryEnabled.call(this) && scribe.allowsBlockElements();
-      };
-
-      scribe.commands.insertOrderedList = new InsertListCommand('insertOrderedList');
-      scribe.commands.insertUnorderedList = new InsertListCommand('insertUnorderedList');
-    };
-  };
-
-});
-
-define('plugins/core/commands/outdent',[],function () {
-
-  
-
-  return function () {
-    return function (scribe) {
-      var outdentCommand = new scribe.api.Command('outdent');
-
-      outdentCommand.queryEnabled = function () {
-        /**
-         * FIXME: If the paragraphs option is set to true, then when the
-         * list is unapplied, ensure that we enter a P element.
-         * Currently we just disable the command when the selection is inside of
-         * a list.
-         */
-        var selection = new scribe.api.Selection();
-        var listElement = selection.getContaining(function (element) {
-          return element.nodeName === 'UL' || element.nodeName === 'OL';
-        });
-
-        // FIXME: define block element rule here?
-        return scribe.api.Command.prototype.queryEnabled.call(this) && scribe.allowsBlockElements() && ! listElement;
-      };
-
-      scribe.commands.outdent = outdentCommand;
-    };
-  };
-
-});
-
-define('plugins/core/commands/redo',[],function () {
-
-  
-
-  return function () {
-    return function (scribe) {
-      var redoCommand = new scribe.api.Command('redo');
-
-      redoCommand.execute = function () {
-        scribe.undoManager.redo();
-      };
-
-      redoCommand.queryEnabled = function () {
-        return scribe.undoManager.position > 0;
-      };
-
-      scribe.commands.redo = redoCommand;
-
-      //is scribe is configured to undo assign listener
-      if (scribe.options.undo.enabled) {
-        scribe.el.addEventListener('keydown', function (event) {
-          if (event.shiftKey && (event.metaKey || event.ctrlKey) && event.keyCode === 90) {
-            event.preventDefault();
-            redoCommand.execute();
-          }
-        });
-      }
-    };
-  };
-
-});
-
-define('plugins/core/commands/subscript',[],function () {
-
-  
-
-  return function () {
-    return function (scribe) {
-      var subscriptCommand = new scribe.api.Command('subscript');
-
-      scribe.commands.subscript = subscriptCommand;
-    };
-  };
-
-});
-
-define('plugins/core/commands/superscript',[],function () {
-
-  
-
-  return function () {
-    return function (scribe) {
-      var superscriptCommand = new scribe.api.Command('superscript');
-
-      scribe.commands.superscript = superscriptCommand;
-    };
-  };
-
-});
-
-define('plugins/core/commands/undo',[],function () {
-
-  
-
-  return function () {
-    return function (scribe) {
-      var undoCommand = new scribe.api.Command('undo');
-
-      undoCommand.execute = function () {
-        scribe.undoManager.undo();
-      };
-
-      undoCommand.queryEnabled = function () {
-        return scribe.undoManager.position < scribe.undoManager.length;
-      };
-
-      scribe.commands.undo = undoCommand;
-
-      if (scribe.options.undo.enabled) {
-        scribe.el.addEventListener('keydown', function (event) {
-          // TODO: use lib to abstract meta/ctrl keys?
-          if (! event.shiftKey && (event.metaKey || event.ctrlKey) && event.keyCode === 90) {
-            event.preventDefault();
-            undoCommand.execute();
-          }
-        });
-      }
-    };
-  };
-
-});
-
-define('plugins/core/commands',[
-  './commands/indent',
-  './commands/insert-list',
-  './commands/outdent',
-  './commands/redo',
-  './commands/subscript',
-  './commands/superscript',
-  './commands/undo'
-], function (
-  indent,
-  insertList,
-  outdent,
-  redo,
-  subscript,
-  superscript,
-  undo
-) {
-
-  
-
-  return {
-    indent: indent,
-    insertList: insertList,
-    outdent: outdent,
-    redo: redo,
-    subscript: subscript,
-    superscript: superscript,
-    undo: undo
-  };
-
-});
-
-define('plugins/core/formatters/html/replace-nbsp-chars',[],function () {
-
-  /**
-   * Chrome:
-   */
-
-  
-
-  return function () {
-    return function (scribe) {
-      var nbspCharRegExp = /(\s|&nbsp;)+/g;
-
-      // TODO: should we be doing this on paste?
-      scribe.registerHTMLFormatter('export', function (html) {
-        return html.replace(nbspCharRegExp, ' ');
-      });
-    };
-  };
-
-});
-
-define('lodash-amd/modern/internal/escapeHtmlChar',[], function() {
-
-  /** Used to map characters to HTML entities. */
-  var htmlEscapes = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-    '`': '&#96;'
-  };
-
-  /**
-   * Used by `_.escape` to convert characters to HTML entities.
-   *
-   * @private
-   * @param {string} chr The matched character to escape.
-   * @returns {string} Returns the escaped character.
-   */
-  function escapeHtmlChar(chr) {
-    return htmlEscapes[chr];
-  }
-
-  return escapeHtmlChar;
-});
-
-define('lodash-amd/modern/string/escape',['../internal/baseToString', '../internal/escapeHtmlChar'], function(baseToString, escapeHtmlChar) {
-
-  /** Used to match HTML entities and HTML characters. */
-  var reUnescapedHtml = /[&<>"'`]/g,
-      reHasUnescapedHtml = RegExp(reUnescapedHtml.source);
-
-  /**
-   * Converts the characters "&", "<", ">", '"', "'", and "\`", in `string` to
-   * their corresponding HTML entities.
-   *
-   * **Note:** No other characters are escaped. To escape additional characters
-   * use a third-party library like [_he_](https://mths.be/he).
-   *
-   * Though the ">" character is escaped for symmetry, characters like
-   * ">" and "/" don't require escaping in HTML and have no special meaning
-   * unless they're part of a tag or unquoted attribute value.
-   * See [Mathias Bynens's article](https://mathiasbynens.be/notes/ambiguous-ampersands)
-   * (under "semi-related fun fact") for more details.
-   *
-   * Backticks are escaped because in Internet Explorer < 9, they can break out
-   * of attribute values or HTML comments. See [#102](https://html5sec.org/#102),
-   * [#108](https://html5sec.org/#108), and [#133](https://html5sec.org/#133) of
-   * the [HTML5 Security Cheatsheet](https://html5sec.org/) for more details.
-   *
-   * When working with HTML you should always quote attribute values to reduce
-   * XSS vectors. See [Ryan Grove's article](http://wonko.com/post/html-escaping)
-   * for more details.
-   *
-   * @static
-   * @memberOf _
-   * @category String
-   * @param {string} [string=''] The string to escape.
-   * @returns {string} Returns the escaped string.
-   * @example
-   *
-   * _.escape('fred, barney, & pebbles');
-   * // => 'fred, barney, &amp; pebbles'
-   */
-  function escape(string) {
-    // Reset `lastIndex` because in IE < 9 `String#replace` does not.
-    string = baseToString(string);
-    return (string && reHasUnescapedHtml.test(string))
-      ? string.replace(reUnescapedHtml, escapeHtmlChar)
-      : string;
-  }
-
-  return escape;
-});
-
-define('plugins/core/formatters/plain-text/escape-html-characters',[
-  'lodash-amd/modern/string/escape'
-], function (
-  escape
-) {
-
-  
-
-  return function () {
-    return function (scribe) {
-      scribe.registerPlainTextFormatter(escape);
-    };
-  };
-
-});
-
-define('plugins/core/formatters',[
-  './formatters/html/replace-nbsp-chars',
-  './formatters/plain-text/escape-html-characters'
-], function (
-  replaceNbspCharsFormatter,
-  escapeHtmlCharactersFormatter
-) {
-  
-
-  return {
-    replaceNbspCharsFormatter: replaceNbspCharsFormatter,
-    escapeHtmlCharactersFormatter: escapeHtmlCharactersFormatter
-  };
-});
-
-define('lodash-amd/modern/internal/baseFlatten',['../lang/isArguments', '../lang/isArray', './isLength', './isObjectLike'], function(isArguments, isArray, isLength, isObjectLike) {
-
-  /**
-   * The base implementation of `_.flatten` with added support for restricting
-   * flattening and specifying the start index.
-   *
-   * @private
-   * @param {Array} array The array to flatten.
-   * @param {boolean} isDeep Specify a deep flatten.
-   * @param {boolean} isStrict Restrict flattening to arrays and `arguments` objects.
-   * @param {number} fromIndex The index to start from.
-   * @returns {Array} Returns the new flattened array.
-   */
-  function baseFlatten(array, isDeep, isStrict, fromIndex) {
-    var index = fromIndex - 1,
-        length = array.length,
-        resIndex = -1,
-        result = [];
-
-    while (++index < length) {
-      var value = array[index];
-
-      if (isObjectLike(value) && isLength(value.length) && (isArray(value) || isArguments(value))) {
-        if (isDeep) {
-          // Recursively flatten arrays (susceptible to call stack limits).
-          value = baseFlatten(value, isDeep, isStrict, 0);
-        }
-        var valIndex = -1,
-            valLength = value.length;
-
-        result.length += valLength;
-        while (++valIndex < valLength) {
-          result[++resIndex] = value[valIndex];
-        }
-      } else if (!isStrict) {
-        result[++resIndex] = value;
-      }
-    }
-    return result;
-  }
-
-  return baseFlatten;
-});
-
-define('lodash-amd/modern/internal/isIterateeCall',['./isIndex', './isLength', '../lang/isObject'], function(isIndex, isLength, isObject) {
-
-  /**
-   * Checks if the provided arguments are from an iteratee call.
-   *
-   * @private
-   * @param {*} value The potential iteratee value argument.
-   * @param {*} index The potential iteratee index or key argument.
-   * @param {*} object The potential iteratee object argument.
-   * @returns {boolean} Returns `true` if the arguments are from an iteratee call, else `false`.
-   */
-  function isIterateeCall(value, index, object) {
-    if (!isObject(object)) {
-      return false;
-    }
-    var type = typeof index;
-    if (type == 'number') {
-      var length = object.length,
-          prereq = isLength(length) && isIndex(index, length);
-    } else {
-      prereq = type == 'string' && index in object;
-    }
-    if (prereq) {
-      var other = object[index];
-      return value === value ? (value === other) : (other !== other);
-    }
-    return false;
-  }
-
-  return isIterateeCall;
-});
-
-define('lodash-amd/modern/array/flatten',['../internal/baseFlatten', '../internal/isIterateeCall'], function(baseFlatten, isIterateeCall) {
-
-  /**
-   * Flattens a nested array. If `isDeep` is `true` the array is recursively
-   * flattened, otherwise it is only flattened a single level.
-   *
-   * @static
-   * @memberOf _
-   * @category Array
-   * @param {Array} array The array to flatten.
-   * @param {boolean} [isDeep] Specify a deep flatten.
-   * @param- {Object} [guard] Enables use as a callback for functions like `_.map`.
-   * @returns {Array} Returns the new flattened array.
-   * @example
-   *
-   * _.flatten([1, [2, 3, [4]]]);
-   * // => [1, 2, 3, [4]];
-   *
-   * // using `isDeep`
-   * _.flatten([1, [2, 3, [4]]], true);
-   * // => [1, 2, 3, 4];
-   */
-  function flatten(array, isDeep, guard) {
-    var length = array ? array.length : 0;
-    if (guard && isIterateeCall(array, isDeep, guard)) {
-      isDeep = false;
-    }
-    return length ? baseFlatten(array, isDeep, false, 0) : [];
-  }
-
-  return flatten;
-});
-
-define('lodash-amd/modern/internal/arrayCopy',[], function() {
-
-  /**
-   * Copies the values of `source` to `array`.
-   *
-   * @private
-   * @param {Array} source The array to copy values from.
-   * @param {Array} [array=[]] The array to copy values to.
-   * @returns {Array} Returns `array`.
-   */
-  function arrayCopy(source, array) {
-    var index = -1,
-        length = source.length;
-
-    array || (array = Array(length));
-    while (++index < length) {
-      array[index] = source[index];
-    }
-    return array;
-  }
-
-  return arrayCopy;
-});
-
-define('lodash-amd/modern/lang/toArray',['../internal/arrayCopy', '../internal/isLength', '../object/values'], function(arrayCopy, isLength, values) {
-
-  /**
-   * Converts `value` to an array.
-   *
-   * @static
-   * @memberOf _
-   * @category Lang
-   * @param {*} value The value to convert.
-   * @returns {Array} Returns the converted array.
-   * @example
-   *
-   * (function() {
-   *   return _.toArray(arguments).slice(1);
-   * }(1, 2, 3));
-   * // => [2, 3]
-   */
-  function toArray(value) {
-    var length = value ? value.length : 0;
-    if (!isLength(length)) {
-      return values(value);
-    }
-    if (!length) {
-      return [];
-    }
-    return arrayCopy(value);
-  }
-
-  return toArray;
-});
-
-define('node',[], function () {
-
-  
-
-  function isEmptyTextNode(node) {
-    return (node.nodeType === Node.TEXT_NODE && node.textContent === '');
-  }
-
-  function insertAfter(newNode, referenceNode) {
-    return referenceNode.parentNode.insertBefore(newNode, referenceNode.nextSibling);
-  }
-
-  function removeNode(node) {
-    return node.parentNode.removeChild(node);
-  }
-
-  return {
-    isEmptyTextNode: isEmptyTextNode,
-    insertAfter: insertAfter,
-    removeNode: removeNode
-  };
-
-});
-
-define('dom-observer',[
-  'lodash-amd/modern/array/flatten',
-  'lodash-amd/modern/lang/toArray',
-  './element',
-  './node'
-], function (
-  flatten,
-  toArray,
-  elementHelpers,
-  nodeHelpers
-) {
-
-  function observeDomChanges(el, callback) {
-    function includeRealMutations(mutations) {
-      var allChangedNodes = flatten(mutations.map(function(mutation) {
-        var added   = toArray(mutation.addedNodes);
-        var removed = toArray(mutation.removedNodes);
-        return added.concat(removed);
-      }));
-
-      var realChangedNodes = allChangedNodes.
-        filter(function(n) { return ! nodeHelpers.isEmptyTextNode(n); }).
-        filter(function(n) { return ! elementHelpers.isSelectionMarkerNode(n); });
-
-      return realChangedNodes.length > 0;
-    }
-
-    var MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
-
-    // Flag to avoid running recursively
-    var runningPostMutation = false;
-
-    var observer = new MutationObserver(function(mutations) {
-      if (! runningPostMutation && includeRealMutations(mutations)) {
-        runningPostMutation = true;
-
-        try {
-          callback();
-        } catch(e) {
-          // The catch block is required but we don't want to swallow the error
-          throw e;
-        } finally {
-          // We must yield to let any mutation we caused be triggered
-          // in the next cycle
-          setTimeout(function() {
-            runningPostMutation = false;
-          }, 0);
-        }
-      }
-    });
-
-    observer.observe(el, {
-      attributes: true,
-      childList: true,
-      subtree: true
-    });
-
-    return observer;
-  }
-
-  return observeDomChanges;
-});
-
-define('plugins/core/events',[
-  'lodash-amd/modern/collection/contains',
-  '../../dom-observer'
-], function (
-  contains,
-  observeDomChanges
-) {
-
-  
-
-  return function () {
-    return function (scribe) {
-      /**
-       * Firefox: Giving focus to a `contenteditable` will place the caret
-       * outside of any block elements. Chrome behaves correctly by placing the
-       * caret at the  earliest point possible inside the first block element.
-       * As per: http://jsbin.com/eLoFOku/1/edit?js,console,output
-       *
-       * We detect when this occurs and fix it by placing the caret ourselves.
-       */
-      scribe.el.addEventListener('focus', function placeCaretOnFocus() {
-        var selection = new scribe.api.Selection();
-        // In Chrome, the range is not created on or before this event loop.
-        // It doesn’t matter because this is a fix for Firefox.
-        if (selection.range) {
-
-          var isFirefoxBug = scribe.allowsBlockElements() &&
-                  selection.range.startContainer === scribe.el;
-
-          if (isFirefoxBug) {
-            var focusElement = getFirstDeepestChild(scribe.el.firstChild);
-
-            var range = selection.range;
-
-            range.setStart(focusElement, 0);
-            range.setEnd(focusElement, 0);
-
-            selection.selection.removeAllRanges();
-            selection.selection.addRange(range);
-          }
-        }
-
-        function getFirstDeepestChild(node) {
-          var treeWalker = document.createTreeWalker(node, NodeFilter.SHOW_ALL, null, false);
-          var previousNode = treeWalker.currentNode;
-          if (treeWalker.firstChild()) {
-            // TODO: build list of non-empty elements (used elsewhere)
-            // Do not include non-empty elements
-            if (treeWalker.currentNode.nodeName === 'BR') {
-              return previousNode;
-            } else {
-              return getFirstDeepestChild(treeWalker.currentNode);
-            }
-          } else {
-            return treeWalker.currentNode;
-          }
-        }
-      }.bind(scribe));
-
-      /**
-       * Apply the formatters when there is a DOM mutation.
-       */
-      var applyFormatters = function() {
-        if (!scribe._skipFormatters) {
-          var selection = new scribe.api.Selection();
-          var isEditorActive = selection.range;
-
-          var runFormatters = function () {
-            if (isEditorActive) {
-              selection.placeMarkers();
-            }
-            scribe.setHTML(scribe._htmlFormatterFactory.format(scribe.getHTML()));
-            selection.selectMarkers();
-          }.bind(scribe);
-
-          // We only want to wrap the formatting in a transaction if the editor is
-          // active. If the DOM is mutated when the editor isn't active (e.g.
-          // `scribe.setContent`), we do not want to push to the history. (This
-          // happens on the first `focus` event).
-
-          // The previous check is no longer needed, and the above comments are no longer valid.
-          // Now `scribe.setContent` updates the content manually, and `scribe.pushHistory`
-          // will not detect any changes, and nothing will be push into the history.
-          // Any mutations made without `scribe.getContent` will be pushed into the history normally.
-
-          // Pass content through formatters, place caret back
-          scribe.transactionManager.run(runFormatters);
-        }
-
-        delete scribe._skipFormatters;
-      }.bind(scribe);
-
-      observeDomChanges(scribe.el, applyFormatters);
-
-      // TODO: disconnect on tear down:
-      // observer.disconnect();
-
-      /**
-       * If the paragraphs option is set to true, we need to manually handle
-       * keyboard navigation inside a heading to ensure a P element is created.
-       */
-      if (scribe.allowsBlockElements()) {
-        scribe.el.addEventListener('keydown', function (event) {
-          if (event.keyCode === 13) { // enter
-
-            var selection = new scribe.api.Selection();
-            var range = selection.range;
-
-            var headingNode = selection.getContaining(function (node) {
-              return (/^(H[1-6])$/).test(node.nodeName);
-            });
-
-            /**
-             * If we are at the end of the heading, insert a P. Otherwise handle
-             * natively.
-             */
-            if (headingNode && range.collapsed) {
-              var contentToEndRange = range.cloneRange();
-              contentToEndRange.setEndAfter(headingNode, 0);
-
-              // Get the content from the range to the end of the heading
-              var contentToEndFragment = contentToEndRange.cloneContents();
-
-              if (contentToEndFragment.firstChild.textContent === '') {
-                event.preventDefault();
-
-                scribe.transactionManager.run(function () {
-                  // Default P
-                  // TODO: Abstract somewhere
-                  var pNode = document.createElement('p');
-                  var brNode = document.createElement('br');
-                  pNode.appendChild(brNode);
-
-                  headingNode.parentNode.insertBefore(pNode, headingNode.nextElementSibling);
-
-                  // Re-apply range
-                  range.setStart(pNode, 0);
-                  range.setEnd(pNode, 0);
-
-                  selection.selection.removeAllRanges();
-                  selection.selection.addRange(range);
-                });
-              }
-            }
-          }
-        });
-      }
-
-      /**
-       * If the paragraphs option is set to true, we need to manually handle
-       * keyboard navigation inside list item nodes.
-       */
-      if (scribe.allowsBlockElements()) {
-        scribe.el.addEventListener('keydown', function (event) {
-          if (event.keyCode === 13 || event.keyCode === 8) { // enter || backspace
-
-            var selection = new scribe.api.Selection();
-            var range = selection.range;
-
-            if (range.collapsed) {
-              var containerLIElement = selection.getContaining(function (node) {
-                return node.nodeName === 'LI';
-              });
-              if (containerLIElement && containerLIElement.textContent.trim() === '') {
-                /**
-                 * LIs
-                 */
-
-                event.preventDefault();
-
-                var listNode = selection.getContaining(function (node) {
-                  return node.nodeName === 'UL' || node.nodeName === 'OL';
-                });
-
-                var command = scribe.getCommand(listNode.nodeName === 'OL' ? 'insertOrderedList' : 'insertUnorderedList');
-
-                command.execute();
-              }
-            }
-          }
-        });
-      }
-
-      /**
-       * We have to hijack the paste event to ensure it uses
-       * `scribe.insertHTML`, which executes the Scribe version of the command
-       * and also runs the formatters.
-       */
-
-      /**
-       * TODO: could we implement this as a polyfill for `event.clipboardData` instead?
-       * I also don't like how it has the authority to perform `event.preventDefault`.
-       */
-
-      scribe.el.addEventListener('paste', function handlePaste(event) {
-        /**
-         * Browsers without the Clipboard API (specifically `ClipboardEvent.clipboardData`)
-         * will execute the second branch here.
-         */
-        if (event.clipboardData) {
-          event.preventDefault();
-
-          if (contains(event.clipboardData.types, 'text/html')) {
-
-            scribe.insertHTML(event.clipboardData.getData('text/html'));
-          } else {
-            scribe.insertPlainText(event.clipboardData.getData('text/plain'));
-          }
-        } else {
-          /**
-           * If the browser doesn't have `ClipboardEvent.clipboardData`, we run through a
-           * sequence of events:
-           *
-           *   - Save the text selection
-           *   - Focus another, hidden textarea so we paste there
-           *   - Copy the pasted content of said textarea
-           *   - Give focus back to the scribe
-           *   - Restore the text selection
-           *
-           * This is required because, without access to the Clipboard API, there is literally
-           * no other way to manipulate content on paste.
-           * As per: https://github.com/jejacks0n/mercury/issues/23#issuecomment-2308347
-           *
-           * Firefox <= 21
-           * https://developer.mozilla.org/en-US/docs/Web/API/ClipboardEvent.clipboardData
-           */
-
-          var selection = new scribe.api.Selection();
-
-          // Store the caret position
-          selection.placeMarkers();
-
-          var bin = document.createElement('div');
-          document.body.appendChild(bin);
-          bin.setAttribute('contenteditable', true);
-          bin.focus();
-
-          // Wait for the paste to happen (next loop?)
-          setTimeout(function () {
-            var data = bin.innerHTML;
-            bin.parentNode.removeChild(bin);
-
-            // Restore the caret position
-            selection.selectMarkers();
-            /**
-             * Firefox 19 (and maybe others): even though the applied range
-             * exists within the Scribe instance, we need to focus it.
-             */
-            scribe.el.focus();
-
-            scribe.insertHTML(data);
-          }, 1);
-        }
-      });
-
-    };
-  };
-});
-
-define('plugins/core/patches/commands/bold',[],function () {
-
-  
-
-  return function () {
-    return function (scribe) {
-      var boldCommand = new scribe.api.CommandPatch('bold');
-
-      /**
-       * Chrome: Executing the bold command inside a heading corrupts the markup.
-       * Disabling for now.
-       */
-      boldCommand.queryEnabled = function () {
-        var selection = new scribe.api.Selection();
-        var headingNode = selection.getContaining(function (node) {
-          return (/^(H[1-6])$/).test(node.nodeName);
-        });
-
-        return scribe.api.CommandPatch.prototype.queryEnabled.apply(this, arguments) && ! headingNode;
-      };
-
-      // TODO: We can't use STRONGs because this would mean we have to
-      // re-implement the `queryState` command, which would be difficult.
-
-      scribe.commandPatches.bold = boldCommand;
-    };
-  };
-
-});
-
-define('plugins/core/patches/commands/indent',[],function () {
-
-  /**
-   * Prevent Chrome from inserting BLOCKQUOTEs inside of Ps, and also from
-   * adding a redundant `style` attribute to the created BLOCKQUOTE.
-   */
-
-  
-
-  var INVISIBLE_CHAR = '\uFEFF';
-
-  return function () {
-    return function (scribe) {
-      var indentCommand = new scribe.api.CommandPatch('indent');
-
-      indentCommand.execute = function (value) {
-        scribe.transactionManager.run(function () {
-          /**
-           * Chrome: If we apply the indent command on an empty P, the
-           * BLOCKQUOTE will be nested inside the P.
-           * As per: http://jsbin.com/oDOriyU/3/edit?html,js,output
-           */
-          var selection = new scribe.api.Selection();
-          var range = selection.range;
-
-          var isCaretOnNewLine =
-              (range.commonAncestorContainer.nodeName === 'P'
-               && range.commonAncestorContainer.innerHTML === '<br>');
-          if (isCaretOnNewLine) {
-            // FIXME: this text node is left behind. Tidy it up somehow,
-            // or don't use it at all.
-            var textNode = document.createTextNode(INVISIBLE_CHAR);
-
-            range.insertNode(textNode);
-
-            range.setStart(textNode, 0);
-            range.setEnd(textNode, 0);
-
-            selection.selection.removeAllRanges();
-            selection.selection.addRange(range);
-          }
-
-          scribe.api.CommandPatch.prototype.execute.call(this, value);
-
-          /**
-           * Chrome: The BLOCKQUOTE created contains a redundant style attribute.
-           * As per: http://jsbin.com/AkasOzu/1/edit?html,js,output
-           */
-
-          // Renew the selection
-          selection = new scribe.api.Selection();
-          var blockquoteNode = selection.getContaining(function (node) {
-            return node.nodeName === 'BLOCKQUOTE';
-          });
-
-          if (blockquoteNode) {
-            blockquoteNode.removeAttribute('style');
-          }
-        }.bind(this));
-      };
-
-      scribe.commandPatches.indent = indentCommand;
-    };
-  };
-
-});
-
-define('plugins/core/patches/commands/insert-html',[], function () {
-
-  
-
-  return function () {
-    return function (scribe) {
-      var insertHTMLCommandPatch = new scribe.api.CommandPatch('insertHTML');
-      var element = scribe.element;
-
-      insertHTMLCommandPatch.execute = function (value) {
-        scribe.transactionManager.run(function () {
-          scribe.api.CommandPatch.prototype.execute.call(this, value);
-
-          /**
-           * Chrome: If a parent node has a CSS `line-height` when we apply the
-           * insertHTML command, Chrome appends a SPAN to plain content with
-           * inline styling replicating that `line-height`, and adjusts the
-           * `line-height` on inline elements.
-           * As per: http://jsbin.com/ilEmudi/4/edit?css,js,output
-           *
-           * FIXME: what if the user actually wants to use SPANs? This could
-           * cause conflicts.
-           */
-
-          // TODO: share somehow with similar event patch for P nodes
-          sanitize(scribe.el);
-
-          function sanitize(parentNode) {
-            var treeWalker = document.createTreeWalker(parentNode, NodeFilter.SHOW_ELEMENT, null, false);
-            var node = treeWalker.firstChild();
-            if (!node) { return; }
-
-            do {
-              if (node.nodeName === 'SPAN') {
-                element.unwrap(parentNode, node);
-              } else {
-                /**
-                 * If the list item contains inline elements such as
-                 * A, B, or I, Chrome will also append an inline style for
-                 * `line-height` on those elements, so we remove it here.
-                 */
-                node.style.lineHeight = null;
-
-                // There probably wasn’t a `style` attribute before, so
-                // remove it if it is now empty.
-                if (node.getAttribute('style') === '') {
-                  node.removeAttribute('style');
-                }
-              }
-
-              // Sanitize children
-              sanitize(node);
-            } while ((node = treeWalker.nextSibling()));
-          }
-        }.bind(this));
-      };
-
-      scribe.commandPatches.insertHTML = insertHTMLCommandPatch;
-    };
-  };
-
-});
-
-define('plugins/core/patches/commands/insert-list',[], function () {
-
-  
-
-  return function () {
-    return function (scribe) {
-      var element = scribe.element;
-      var nodeHelpers = scribe.node;
-
-      var InsertListCommandPatch = function (commandName) {
-        scribe.api.CommandPatch.call(this, commandName);
-      };
-
-      InsertListCommandPatch.prototype = Object.create(scribe.api.CommandPatch.prototype);
-      InsertListCommandPatch.prototype.constructor = InsertListCommandPatch;
-
-      InsertListCommandPatch.prototype.execute = function (value) {
-        scribe.transactionManager.run(function () {
-          scribe.api.CommandPatch.prototype.execute.call(this, value);
-
-          if (this.queryState()) {
-            var selection = new scribe.api.Selection();
-
-            var listElement = selection.getContaining(function (node) {
-              return node.nodeName === 'OL' || node.nodeName === 'UL';
-            });
-
-
-            /**
-             * Firefox: If we apply the insertOrderedList or the insertUnorderedList
-             * command on an empty block, a P will be inserted after the OL/UL.
-             * As per: http://jsbin.com/cubacoli/3/edit?html,js,output
-             */
-
-            if (listElement.nextElementSibling &&
-                listElement.nextElementSibling.childNodes.length === 0) {
-              nodeHelpers.removeNode(listElement.nextElementSibling);
-            }
-
-            /**
-             * Chrome: If we apply the insertOrderedList or the insertUnorderedList
-             * command on an empty block, the OL/UL will be nested inside the block.
-             * As per: http://jsbin.com/eFiRedUc/1/edit?html,js,output
-             */
-
-            if (listElement) {
-              var listParentNode = listElement.parentNode;
-              // If list is within a text block then split that block
-              if (listParentNode && /^(H[1-6]|P)$/.test(listParentNode.nodeName)) {
-                selection.placeMarkers();
-                // Move listElement out of the block
-                nodeHelpers.insertAfter(listElement, listParentNode);
-                selection.selectMarkers();
-
-                /**
-                 * Chrome 27-34: An empty text node is inserted.
-                 */
-                if (listParentNode.childNodes.length === 2 &&
-                    nodeHelpers.isEmptyTextNode(listParentNode.firstChild)) {
-                  nodeHelpers.removeNode(listParentNode);
-                }
-
-                // Remove the block if it's empty
-                if (listParentNode.childNodes.length === 0) {
-                  nodeHelpers.removeNode(listParentNode);
-                }
-              }
-            }
-
-            /**
-             * Chrome: If a parent node has a CSS `line-height` when we apply the
-             * insertOrderedList or the insertUnorderedList command, Chrome appends
-             * a SPAN to LIs with inline styling replicating that `line-height`.
-             * As per: http://jsbin.com/OtemujAY/7/edit?html,css,js,output
-             *
-             * FIXME: what if the user actually wants to use SPANs? This could
-             * cause conflicts.
-             */
-
-            // TODO: share somehow with similar event patch for P nodes
-            var listItemElements = Array.prototype.slice.call(listElement.childNodes);
-            listItemElements.forEach(function(listItemElement) {
-              // We clone the childNodes into an Array so that it's
-              // not affected by any manipulation below when we
-              // iterate over it
-              var listItemElementChildNodes = Array.prototype.slice.call(listItemElement.childNodes);
-              listItemElementChildNodes.forEach(function(listElementChildNode) {
-                if (listElementChildNode.nodeName === 'SPAN') {
-                  // Unwrap any SPAN that has been inserted
-                  var spanElement = listElementChildNode;
-                  element.unwrap(listItemElement, spanElement);
-                } else if (listElementChildNode.nodeType === Node.ELEMENT_NODE) {
-                  /**
-                   * If the list item contains inline elements such as
-                   * A, B, or I, Chrome will also append an inline style for
-                   * `line-height` on those elements, so we remove it here.
-                   */
-                  listElementChildNode.style.lineHeight = null;
-
-                  // There probably wasn’t a `style` attribute before, so
-                  // remove it if it is now empty.
-                  if (listElementChildNode.getAttribute('style') === '') {
-                    listElementChildNode.removeAttribute('style');
-                  }
-                }
-              });
-            });
-          }
-        }.bind(this));
-      };
-
-      scribe.commandPatches.insertOrderedList = new InsertListCommandPatch('insertOrderedList');
-      scribe.commandPatches.insertUnorderedList = new InsertListCommandPatch('insertUnorderedList');
-    };
-  };
-
-});
-
-define('plugins/core/patches/commands/outdent',[],function () {
-
-  /**
-   * Prevent Chrome from removing formatting of BLOCKQUOTE contents.
-   */
-
-  
-
-  return function () {
-    return function (scribe) {
-      var outdentCommand = new scribe.api.CommandPatch('outdent');
-
-      outdentCommand.execute = function () {
-        scribe.transactionManager.run(function () {
-          var selection = new scribe.api.Selection();
-          var range = selection.range;
-
-          var blockquoteNode = selection.getContaining(function (node) {
-            return node.nodeName === 'BLOCKQUOTE';
-          });
-
-          if (range.commonAncestorContainer.nodeName === 'BLOCKQUOTE') {
-            /**
-             * Chrome: Applying the outdent command when a whole BLOCKQUOTE is
-             * selected removes the formatting of its contents.
-             * As per: http://jsbin.com/okAYaHa/1/edit?html,js,output
-             */
-
-            // Insert a copy of the selection before the BLOCKQUOTE, and then
-            // restore the selection on the copy.
-            selection.placeMarkers();
-            // We want to copy the selected nodes *with* the markers
-            selection.selectMarkers(true);
-            var selectedNodes = range.cloneContents();
-            blockquoteNode.parentNode.insertBefore(selectedNodes, blockquoteNode);
-            range.deleteContents();
-            selection.selectMarkers();
-
-            // Delete the BLOCKQUOTE if it's empty
-            if (blockquoteNode.textContent === '') {
-              blockquoteNode.parentNode.removeChild(blockquoteNode);
-            }
-          } else {
-            /**
-             * Chrome: If we apply the outdent command on a P, the contents of the
-             * P will be outdented instead of the whole P element.
-             * As per: http://jsbin.com/IfaRaFO/1/edit?html,js,output
-             */
-
-            var pNode = selection.getContaining(function (node) {
-              return node.nodeName === 'P';
-            });
-
-            if (pNode) {
-              /**
-               * If we are not at the start of end of a BLOCKQUOTE, we have to
-               * split the node and insert the P in the middle.
-               */
-
-              var nextSiblingNodes = (new scribe.api.Node(pNode)).nextAll();
-
-              if (nextSiblingNodes.length) {
-                var newContainerNode = document.createElement(blockquoteNode.nodeName);
-
-                nextSiblingNodes.forEach(function (siblingNode) {
-                  newContainerNode.appendChild(siblingNode);
-                });
-
-                blockquoteNode.parentNode.insertBefore(newContainerNode, blockquoteNode.nextElementSibling);
-              }
-
-              selection.placeMarkers();
-              blockquoteNode.parentNode.insertBefore(pNode, blockquoteNode.nextElementSibling);
-              selection.selectMarkers();
-
-              // If the BLOCKQUOTE is now empty, clean it up.
-              if (blockquoteNode.innerHTML === '') {
-                blockquoteNode.parentNode.removeChild(blockquoteNode);
-              }
-            } else {
-              scribe.api.CommandPatch.prototype.execute.call(this);
-            }
-          }
-        }.bind(this));
-      };
-
-      scribe.commandPatches.outdent = outdentCommand;
-    };
-  };
-
-});
-
-define('plugins/core/patches/commands/create-link',[],function () {
-
-  
-
-  return function () {
-    return function (scribe) {
-      var createLinkCommand = new scribe.api.CommandPatch('createLink');
-      scribe.commandPatches.createLink = createLinkCommand;
-
-      createLinkCommand.execute = function (value) {
-        var selection = new scribe.api.Selection();
-
-        /**
-         * Firefox does not create a link when selection is collapsed
-         * so we create it manually. http://jsbin.com/tutufi/2/edit?js,output
-         */
-        // using range.collapsed vs selection.isCollapsed - https://code.google.com/p/chromium/issues/detail?id=447523
-        if (selection.range.collapsed) {
-          var aElement = document.createElement('a');
-          aElement.setAttribute('href', value);
-          aElement.textContent = value;
-
-          selection.range.insertNode(aElement);
-
-          // Select the created link
-          var newRange = document.createRange();
-          newRange.setStartBefore(aElement);
-          newRange.setEndAfter(aElement);
-
-          selection.selection.removeAllRanges();
-          selection.selection.addRange(newRange);
-        } else {
-          scribe.api.CommandPatch.prototype.execute.call(this, value);
-        }
-      };
-    };
-  };
-
-});
-
-define('plugins/core/patches/events',[], function () {
-
-  
-
-  return function () {
-    return function (scribe) {
-      /**
-       * Chrome: If a parent node has a CSS `line-height` when we apply the
-       * insert(Un)OrderedList command, altering the paragraph structure by pressing
-       * <backspace> or <delete> (merging/deleting paragraphs) sometimes
-       * results in the application of a line-height attribute to the
-       * contents of the paragraph, either onto existing elements or
-       * by wrapping text in a span.
-       * As per: http://jsbin.com/isIdoKA/4/edit?html,css,js,output
-       *
-       * FIXME: what if the user actually wants to use SPANs? This could
-       * cause conflicts.
-       */
-      // TODO: do we need to run this on every key press, or could we
-      //       detect when the issue may have occurred?
-      // TODO: run in a transaction so as to record the change? how do
-      //       we know in advance whether there will be a change though?
-      // TODO: share somehow with `InsertList` command
-
-      var element = scribe.element;
-
-      if (scribe.allowsBlockElements()) {
-        scribe.el.addEventListener('keyup', function (event) {
-          if (event.keyCode === 8 || event.keyCode === 46) { // backspace or delete
-
-            var selection = new scribe.api.Selection();
-
-            // Note: the range is always collapsed on keyup here
-            var containerPElement = selection.getContaining(function (node) {
-              return node.nodeName === 'P';
-            });
-            if (containerPElement) {
-              /**
-               * The 'input' event listener has already triggered
-               * and recorded the faulty content as an item in the
-               * UndoManager. We interfere with the undoManager
-               * by force merging that transaction with the next
-               * transaction which produce a clean one instead.
-               *
-               * FIXME: ideally we would not trigger a
-               * 'content-changed' event with faulty HTML at all, but
-               * it's too late to cancel it at this stage (and it's
-               * not happened yet at keydown time).
-               */
-
-              scribe.transactionManager.run(function () {
-                // Store the caret position
-                selection.placeMarkers();
-
-                // We clone the childNodes into an Array so that it's
-                // not affected by any manipulation below when we
-                // iterate over it
-                var pElementChildNodes = Array.prototype.slice.call(containerPElement.childNodes);
-                pElementChildNodes.forEach(function(pElementChildNode) {
-                  if (pElementChildNode.nodeName === 'SPAN') {
-                    // Unwrap any SPAN that has been inserted
-                    var spanElement = pElementChildNode;
-                    element.unwrap(containerPElement, spanElement);
-                  } else if (pElementChildNode.nodeType === Node.ELEMENT_NODE) {
-                    /**
-                     * If the paragraph contains inline elements such as
-                     * A, B, or I, Chrome will also append an inline style for
-                     * `line-height` on those elements, so we remove it here.
-                     */
-                    pElementChildNode.style.lineHeight = null;
-
-                    // There probably wasn’t a `style` attribute before, so
-                    // remove it if it is now empty.
-                    if (pElementChildNode.getAttribute('style') === '') {
-                      pElementChildNode.removeAttribute('style');
-                    }
-                  }
-                });
-
-                selection.selectMarkers();
-              }, true);
-            }
-          }
-        });
-      }
-    };
-  };
-});
-
-define('plugins/core/patches',[
-  './patches/commands/bold',
-  './patches/commands/indent',
-  './patches/commands/insert-html',
-  './patches/commands/insert-list',
-  './patches/commands/outdent',
-  './patches/commands/create-link',
-  './patches/events'
-], function (
-  boldCommand,
-  indentCommand,
-  insertHTMLCommand,
-  insertListCommands,
-  outdentCommand,
-  createLinkCommand,
-  events
-) {
-
-  /**
-   * Command patches browser inconsistencies. They do not perform core features
-   * of the editor, such as ensuring P elements are created when
-   * applying/unapplying commands — that is the job of the core commands.
-   */
-
-  
-
-  return {
-    commands: {
-      bold: boldCommand,
-      indent: indentCommand,
-      insertHTML: insertHTMLCommand,
-      insertList: insertListCommands,
-      outdent: outdentCommand,
-      createLink: createLinkCommand,
-    },
-    events: events
-  };
-
-});
-
-define('api/command-patch',[],function () {
-
-  
-
-  return function (scribe) {
-    function CommandPatch(commandName) {
-      this.commandName = commandName;
-    }
-
-    CommandPatch.prototype.execute = function (value) {
-      scribe.transactionManager.run(function () {
-        document.execCommand(this.commandName, false, value || null);
-      }.bind(this));
-    };
-
-    CommandPatch.prototype.queryState = function () {
-      return document.queryCommandState(this.commandName);
-    };
-
-    CommandPatch.prototype.queryEnabled = function () {
-      return document.queryCommandEnabled(this.commandName);
-    };
-
-    return CommandPatch;
-  };
-
-});
-
-define('api/command',[],function () {
-
-  
-
-  return function (scribe) {
-    function Command(commandName) {
-      this.commandName = commandName;
-      this.patch = scribe.commandPatches[this.commandName];
-    }
-
-    Command.prototype.execute = function (value) {
-      if (this.patch) {
-        this.patch.execute(value);
-      } else {
-        scribe.transactionManager.run(function () {
-          document.execCommand(this.commandName, false, value || null);
-        }.bind(this));
-      }
-    };
-
-    Command.prototype.queryState = function () {
-      if (this.patch) {
-        return this.patch.queryState();
-      } else {
-        return document.queryCommandState(this.commandName);
-      }
-    };
-
-    Command.prototype.queryEnabled = function () {
-      if (this.patch) {
-        return this.patch.queryEnabled();
-      } else {
-        return document.queryCommandEnabled(this.commandName);
-      }
-    };
-
-    return Command;
-  };
-
-});
-
-define('api/node',[],function () {
-
-  
-
-  function Node(node) {
-    this.node = node;
-  }
-
-  // TODO: should the return value be wrapped in one of our APIs?
-  // Node or Selection?
-  // TODO: write tests. unit or integration?
-  Node.prototype.getAncestor = function (rootElement, nodeFilter) {
-    var isTopContainerElement = function (element) {
-      return rootElement === element;
-    };
-    // TODO: should this happen here?
-    if (isTopContainerElement(this.node)) {
-      return;
-    }
-
-    var currentNode = this.node.parentNode;
-
-    // If it's a `contenteditable` then it's likely going to be the Scribe
-    // instance, so stop traversing there.
-    while (currentNode && ! isTopContainerElement(currentNode)) {
-      if (nodeFilter(currentNode)) {
-        return currentNode;
-      }
-      currentNode = currentNode.parentNode;
-    }
-  };
-
-  Node.prototype.nextAll = function () {
-    var all = [];
-    var el = this.node.nextSibling;
-    while (el) {
-      all.push(el);
-      el = el.nextSibling;
-    }
-    return all;
-  };
-
-  return Node;
-
-});
-
-define('api/selection',[
-  '../element'
-],
-function (elementHelper) {
-
-  
-
-  return function (scribe) {
-    /**
-     * Wrapper for object holding currently selected text.
-     */
-    function Selection() {
-      var rootDoc = document;
-
-      // find the parent document or document fragment
-      var currentElement = scribe.el.parentNode;
-      while(currentElement && currentElement.nodeType !== Node.DOCUMENT_FRAGMENT_NODE && currentElement.nodeType !== Node.DOCUMENT_NODE) {
-        currentElement = currentElement.parentNode;
-      }
-
-      // if we found a document fragment and it has a getSelection method, set it to the root doc
-      if (currentElement && currentElement.nodeType === Node.DOCUMENT_FRAGMENT_NODE && currentElement.getSelection) {
-        rootDoc = currentElement;
-      }
-
-      this.selection = rootDoc.getSelection();
-      if (this.selection.rangeCount && this.selection.anchorNode) {
-        // create the range to avoid chrome bug from getRangeAt / window.getSelection()
-        // https://code.google.com/p/chromium/issues/detail?id=380690
-        this.range = document.createRange();
-        var reverseRange = document.createRange();
-
-        this.range.setStart(this.selection.anchorNode, this.selection.anchorOffset);
-        reverseRange.setStart(this.selection.focusNode, this.selection.focusOffset);
-
-        // Check if anchorNode is before focusNode, use reverseRange if not
-        if (this.range.compareBoundaryPoints(Range.START_TO_START, reverseRange) <= 0) {
-          this.range.setEnd(this.selection.focusNode, this.selection.focusOffset);
-        }
-        else {
-          this.range = reverseRange;
-          this.range.setEnd(this.selection.anchorNode, this.selection.anchorOffset);
-        }
-      }
-    }
-
-    /**
-     * @returns Closest ancestor Node satisfying nodeFilter. Undefined if none exist before reaching Scribe container.
-     */
-    Selection.prototype.getContaining = function (nodeFilter) {
-      var range = this.range;
-      if (!range) { return; }
-
-      var node = new scribe.api.Node(this.range.commonAncestorContainer);
-      var isTopContainerElement = node.node && scribe.el === node.node;
-
-      return ! isTopContainerElement && nodeFilter(node.node) ? node.node : node.getAncestor(scribe.el, nodeFilter);
-    };
-
-    Selection.prototype.placeMarkers = function () {
-      var range = this.range;
-      if (!range) {
-        return;
-      }
-
-      //we need to ensure that the scribe's element lives within the current document to avoid errors with the range comparison (see below)
-      //one way to do this is to check if it's visible (is this the best way?).
-      if (!scribe.el.offsetParent) {
-        return;
-      }
-
-      //we want to ensure that the current selection is within the current scribe node
-      //if this isn't true scribe will place markers within the selections parent
-      //we want to ensure that scribe ONLY places markers within it's own element
-      var scribeNodeRange = document.createRange();
-      scribeNodeRange.selectNodeContents(scribe.el);
-
-      var selectionStartWithinScribeElementStart = this.range.compareBoundaryPoints(Range.START_TO_START, scribeNodeRange) >= 0;
-      var selectionEndWithinScribeElementEnd = this.range.compareBoundaryPoints(Range.END_TO_END, scribeNodeRange) <= 0;
-
-      if (selectionStartWithinScribeElementStart && selectionEndWithinScribeElementEnd) {
-
-        var startMarker = document.createElement('em');
-        startMarker.classList.add('scribe-marker');
-        var endMarker = document.createElement('em');
-        endMarker.classList.add('scribe-marker');
-
-        // End marker
-        var rangeEnd = this.range.cloneRange();
-        rangeEnd.collapse(false);
-        rangeEnd.insertNode(endMarker);
-
-        /**
-         * Chrome and Firefox: `Range.insertNode` inserts a bogus text node after
-         * the inserted element. We just remove it. This in turn creates several
-         * bugs when perfoming commands on selections that contain an empty text
-         * node (`removeFormat`, `unlink`).
-         * As per: http://jsbin.com/hajim/5/edit?js,console,output
-         */
-        // TODO: abstract into polyfill for `Range.insertNode`
-        if (endMarker.nextSibling &&
-            endMarker.nextSibling.nodeType === Node.TEXT_NODE
-            && endMarker.nextSibling.data === '') {
-          endMarker.parentNode.removeChild(endMarker.nextSibling);
-        }
-
-
-
-        /**
-         * Chrome and Firefox: `Range.insertNode` inserts a bogus text node before
-         * the inserted element when the child element is at the start of a block
-         * element. We just remove it.
-         * FIXME: Document why we need to remove this
-         * As per: http://jsbin.com/sifez/1/edit?js,console,output
-         */
-        if (endMarker.previousSibling &&
-            endMarker.previousSibling.nodeType === Node.TEXT_NODE
-            && endMarker.previousSibling.data === '') {
-          endMarker.parentNode.removeChild(endMarker.previousSibling);
-        }
-
-
-        /**
-         * This is meant to test Chrome inserting erroneous text blocks into
-         * the scribe el when focus switches from a scribe.el to a button to
-         * the scribe.el. However, this is impossible to simlulate correctly
-         * in a test.
-         *
-         * This behaviour does not happen in Firefox.
-         *
-         * See http://jsbin.com/quhin/2/edit?js,output,console
-         *
-         * To reproduce the bug, follow the following steps:
-         *    1. Select text and create H2
-         *    2. Move cursor to front of text.
-         *    3. Remove the H2 by clicking the button
-         *    4. Observe that you are left with an empty H2
-         *        after the element.
-         *
-         * The problem is caused by the Range being different, depending on
-         * the position of the marker.
-         *
-         * Consider the following two scenarios.
-         *
-         * A)
-         *   1. scribe.el contains: ["1", <em>scribe-marker</em>]
-         *   2. Click button and click the right of to scribe.el
-         *   3. scribe.el contains: ["1", <em>scribe-marker</em>. #text]
-         *
-         *   This is wrong but does not cause the problem.
-         *
-         * B)
-         *   1. scribe.el contains: ["1", <em>scribe-marker</em>]
-         *   2. Click button and click to left of scribe.el
-         *   3. scribe.el contains: [#text, <em>scribe-marker</em>, "1"]
-         *
-         * The second example sets the range in the wrong place, meaning
-         * that in the second case the formatBlock is executed on the wrong
-         * element [the text node] leaving the empty H2 behind.
-         **/
-
-        // using range.collapsed vs selection.isCollapsed - https://code.google.com/p/chromium/issues/detail?id=447523
-        if (! this.range.collapsed) {
-          // Start marker
-          var rangeStart = this.range.cloneRange();
-          rangeStart.collapse(true);
-          rangeStart.insertNode(startMarker);
-
-          /**
-           * Chrome and Firefox: `Range.insertNode` inserts a bogus text node after
-           * the inserted element. We just remove it. This in turn creates several
-           * bugs when perfoming commands on selections that contain an empty text
-           * node (`removeFormat`, `unlink`).
-           * As per: http://jsbin.com/hajim/5/edit?js,console,output
-           */
-          // TODO: abstract into polyfill for `Range.insertNode`
-          if (startMarker.nextSibling &&
-              startMarker.nextSibling.nodeType === Node.TEXT_NODE
-              && startMarker.nextSibling.data === '') {
-            startMarker.parentNode.removeChild(startMarker.nextSibling);
-          }
-
-          /**
-           * Chrome and Firefox: `Range.insertNode` inserts a bogus text node
-           * before the inserted element when the child element is at the start of
-           * a block element. We just remove it.
-           * FIXME: Document why we need to remove this
-           * As per: http://jsbin.com/sifez/1/edit?js,console,output
-           */
-          if (startMarker.previousSibling &&
-              startMarker.previousSibling.nodeType === Node.TEXT_NODE
-              && startMarker.previousSibling.data === '') {
-            startMarker.parentNode.removeChild(startMarker.previousSibling);
-          }
-        }
-
-
-        this.selection.removeAllRanges();
-        this.selection.addRange(this.range);
-      }
-    };
-
-    Selection.prototype.getMarkers = function () {
-      return scribe.el.querySelectorAll('em.scribe-marker');
-    };
-
-    Selection.prototype.removeMarkers = function () {
-      var markers = this.getMarkers();
-      Array.prototype.forEach.call(markers, function (marker) {
-        marker.parentNode.removeChild(marker);
-      });
-    };
-
-    // This will select markers if there are any. You will need to focus the
-    // Scribe instance’s element if it is not already for the selection to
-    // become active.
-    Selection.prototype.selectMarkers = function (keepMarkers) {
-      var markers = this.getMarkers();
-      if (!markers.length) {
-        return;
-      }
-
-      var newRange = document.createRange();
-
-      newRange.setStartBefore(markers[0]);
-      if (markers.length >= 2) {
-        newRange.setEndAfter(markers[1]);
-      } else {
-        // We always reset the end marker because otherwise it will just
-        // use the current range’s end marker.
-        newRange.setEndAfter(markers[0]);
-      }
-
-      if (! keepMarkers) {
-        this.removeMarkers();
-      }
-
-      this.selection.removeAllRanges();
-      this.selection.addRange(newRange);
-    };
-
-    Selection.prototype.isCaretOnNewLine = function () {
-      // return true if nested inline tags ultimately just contain <br> or ""
-      function isEmptyInlineElement(node) {
-
-        var treeWalker = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT, null, false);
-
-        var currentNode = treeWalker.root;
-
-        while(currentNode) {
-          var numberOfChildren = currentNode.childNodes.length;
-
-          // forks in the tree or text mean no new line
-          if (numberOfChildren > 1 ||
-              (numberOfChildren === 1 && currentNode.textContent.trim() !== ''))
-            return false;
-
-          if (numberOfChildren === 0) {
-            return currentNode.textContent.trim() === '';
-          }
-
-          currentNode = treeWalker.nextNode();
-        };
-      };
-
-      var containerPElement = this.getContaining(function (node) {
-        return node.nodeName === 'P';
-      });
-      if (containerPElement) {
-        return isEmptyInlineElement(containerPElement);
-      } else {
-        return false;
-      }
-    };
-
-    return Selection;
-  };
-
-});
-
-define('api/simple-command',[],function () {
-
-  
-
-  return function (api, scribe) {
-    function SimpleCommand(commandName, nodeName) {
-      scribe.api.Command.call(this, commandName);
-
-      this._nodeName = nodeName;
-    }
-
-    SimpleCommand.prototype = Object.create(api.Command.prototype);
-    SimpleCommand.prototype.constructor = SimpleCommand;
-
-    SimpleCommand.prototype.queryState = function () {
-      var selection = new scribe.api.Selection();
-      return scribe.api.Command.prototype.queryState.call(this) && !! selection.getContaining(function (node) {
-        return node.nodeName === this._nodeName;
-      }.bind(this));
-    };
-
-    return SimpleCommand;
-  };
-
-});
-
-define('api',[
-  './api/command-patch',
-  './api/command',
-  './api/node',
-  './api/selection',
-  './api/simple-command'
-], function (
-  buildCommandPatch,
-  buildCommand,
-  Node,
-  buildSelection,
-  buildSimpleCommand
-) {
-
-  
-
-  return function Api(scribe) {
-    this.CommandPatch = buildCommandPatch(scribe);
-    this.Command = buildCommand(scribe);
-    this.Node = Node;
-    this.Selection = buildSelection(scribe);
-    this.SimpleCommand = buildSimpleCommand(this, scribe);
-  };
-});
-
-define('lodash-amd/modern/internal/baseCopy',[], function() {
-
-  /**
-   * Copies the properties of `source` to `object`.
-   *
-   * @private
-   * @param {Object} source The object to copy properties from.
-   * @param {Object} [object={}] The object to copy properties to.
-   * @param {Array} props The property names to copy.
-   * @returns {Object} Returns `object`.
-   */
-  function baseCopy(source, object, props) {
-    if (!props) {
-      props = object;
-      object = {};
-    }
-    var index = -1,
-        length = props.length;
-
-    while (++index < length) {
-      var key = props[index];
-      object[key] = source[key];
-    }
-    return object;
-  }
-
-  return baseCopy;
-});
-
-define('lodash-amd/modern/internal/baseAssign',['./baseCopy', '../object/keys'], function(baseCopy, keys) {
-
-  /**
-   * The base implementation of `_.assign` without support for argument juggling,
-   * multiple sources, and `this` binding `customizer` functions.
-   *
-   * @private
-   * @param {Object} object The destination object.
-   * @param {Object} source The source object.
-   * @param {Function} [customizer] The function to customize assigning values.
-   * @returns {Object} Returns the destination object.
-   */
-  function baseAssign(object, source, customizer) {
-    var props = keys(source);
-    if (!customizer) {
-      return baseCopy(source, object, props);
-    }
-    var index = -1,
-        length = props.length;
-
-    while (++index < length) {
-      var key = props[index],
-          value = object[key],
-          result = customizer(value, source[key], key, object, source);
-
-      if ((result === result ? (result !== value) : (value === value)) ||
-          (typeof value == 'undefined' && !(key in object))) {
-        object[key] = result;
-      }
-    }
-    return object;
-  }
-
-  return baseAssign;
-});
-
-define('lodash-amd/modern/utility/identity',[], function() {
-
-  /**
-   * This method returns the first argument provided to it.
-   *
-   * @static
-   * @memberOf _
-   * @category Utility
-   * @param {*} value Any value.
-   * @returns {*} Returns `value`.
-   * @example
-   *
-   * var object = { 'user': 'fred' };
-   *
-   * _.identity(object) === object;
-   * // => true
-   */
-  function identity(value) {
-    return value;
-  }
-
-  return identity;
-});
-
-define('lodash-amd/modern/internal/bindCallback',['../utility/identity'], function(identity) {
-
-  /**
-   * A specialized version of `baseCallback` which only supports `this` binding
-   * and specifying the number of arguments to provide to `func`.
-   *
-   * @private
-   * @param {Function} func The function to bind.
-   * @param {*} thisArg The `this` binding of `func`.
-   * @param {number} [argCount] The number of arguments to provide to `func`.
-   * @returns {Function} Returns the callback.
-   */
-  function bindCallback(func, thisArg, argCount) {
-    if (typeof func != 'function') {
-      return identity;
-    }
-    if (typeof thisArg == 'undefined') {
-      return func;
-    }
-    switch (argCount) {
-      case 1: return function(value) {
-        return func.call(thisArg, value);
-      };
-      case 3: return function(value, index, collection) {
-        return func.call(thisArg, value, index, collection);
-      };
-      case 4: return function(accumulator, value, index, collection) {
-        return func.call(thisArg, accumulator, value, index, collection);
-      };
-      case 5: return function(value, other, key, object, source) {
-        return func.call(thisArg, value, other, key, object, source);
-      };
-    }
-    return function() {
-      return func.apply(thisArg, arguments);
-    };
-  }
-
-  return bindCallback;
-});
-
-define('lodash-amd/modern/internal/createAssigner',['./bindCallback', './isIterateeCall'], function(bindCallback, isIterateeCall) {
-
-  /**
-   * Creates a function that assigns properties of source object(s) to a given
-   * destination object.
-   *
-   * @private
-   * @param {Function} assigner The function to assign values.
-   * @returns {Function} Returns the new assigner function.
-   */
-  function createAssigner(assigner) {
-    return function() {
-      var args = arguments,
-          length = args.length,
-          object = args[0];
-
-      if (length < 2 || object == null) {
-        return object;
-      }
-      var customizer = args[length - 2],
-          thisArg = args[length - 1],
-          guard = args[3];
-
-      if (length > 3 && typeof customizer == 'function') {
-        customizer = bindCallback(customizer, thisArg, 5);
-        length -= 2;
-      } else {
-        customizer = (length > 2 && typeof thisArg == 'function') ? thisArg : null;
-        length -= (customizer ? 1 : 0);
-      }
-      if (guard && isIterateeCall(args[1], args[2], guard)) {
-        customizer = length == 3 ? null : customizer;
-        length = 2;
-      }
-      var index = 0;
-      while (++index < length) {
-        var source = args[index];
-        if (source) {
-          assigner(object, source, customizer);
-        }
-      }
-      return object;
-    };
-  }
-
-  return createAssigner;
-});
-
-define('lodash-amd/modern/object/assign',['../internal/baseAssign', '../internal/createAssigner'], function(baseAssign, createAssigner) {
-
-  /**
-   * Assigns own enumerable properties of source object(s) to the destination
-   * object. Subsequent sources overwrite property assignments of previous sources.
-   * If `customizer` is provided it is invoked to produce the assigned values.
-   * The `customizer` is bound to `thisArg` and invoked with five arguments;
-   * (objectValue, sourceValue, key, object, source).
-   *
-   * @static
-   * @memberOf _
-   * @alias extend
-   * @category Object
-   * @param {Object} object The destination object.
-   * @param {...Object} [sources] The source objects.
-   * @param {Function} [customizer] The function to customize assigning values.
-   * @param {*} [thisArg] The `this` binding of `customizer`.
-   * @returns {Object} Returns `object`.
-   * @example
-   *
-   * _.assign({ 'user': 'barney' }, { 'age': 40 }, { 'user': 'fred' });
-   * // => { 'user': 'fred', 'age': 40 }
-   *
-   * // using a customizer callback
-   * var defaults = _.partialRight(_.assign, function(value, other) {
-   *   return typeof value == 'undefined' ? other : value;
-   * });
-   *
-   * defaults({ 'user': 'barney' }, { 'age': 36 }, { 'user': 'fred' });
-   * // => { 'user': 'barney', 'age': 36 }
-   */
-  var assign = createAssigner(baseAssign);
-
-  return assign;
-});
-
-define('transaction-manager',['lodash-amd/modern/object/assign'], function (assign) {
-
-  
-
-  return function (scribe) {
-    function TransactionManager() {
-      this.history = [];
-    }
-
-    assign(TransactionManager.prototype, {
-      start: function () {
-        this.history.push(1);
-      },
-
-      end: function () {
-        this.history.pop();
-
-        if (this.history.length === 0) {
-          scribe.pushHistory();
-          scribe.trigger('content-changed');
-        }
-      },
-
-      run: function (transaction, forceMerge) {
-        this.start();
-        // If there is an error, don't prevent the transaction from ending.
-        try {
-          if (transaction) {
-            transaction();
-          }
-        } finally {
-          scribe._forceMerge = forceMerge === true;
-          this.end();
-          scribe._forceMerge = false;
-        }
-      }
-    });
-
-    return TransactionManager;
-  };
-});
-
-define('undo-manager',[],function () {
-  
-
-  function UndoManager(limit, undoScopeHost) {
-    this._stack = [];
-    this._limit = limit;
-    this._fireEvent = typeof CustomEvent != 'undefined' && undoScopeHost && undoScopeHost.dispatchEvent;
-    this._ush = undoScopeHost;
-
-    this.position = 0;
-    this.length = 0;
-  }
-
-  UndoManager.prototype.transact = function (transaction, merge) {
-    if (arguments.length < 2) {
-      throw new TypeError('Not enough arguments to UndoManager.transact.');
-    }
-
-    transaction.execute();
-
-    this._stack.splice(0, this.position);
-    if (merge && this.length) {
-      this._stack[0].push(transaction);
-    }
-    else {
-      this._stack.unshift([transaction]);
-    }
-    this.position = 0;
-
-    if (this._limit && this._stack.length > this._limit) {
-      this.length = this._stack.length = this._limit;
-    }
-    else {
-      this.length = this._stack.length;
-    }
-
-    if (this._fireEvent) {
-      this._ush.dispatchEvent(new CustomEvent('DOMTransaction', {detail: {transactions: this._stack[0].slice()}, bubbles: true, cancelable: false}));
-    }
-  };
-
-  UndoManager.prototype.undo = function () {
-    if (this.position < this.length) {
-      for (var i = this._stack[this.position].length - 1; i >= 0; i--) {
-        this._stack[this.position][i].undo();
-      }
-      this.position++;
-
-      if (this._fireEvent) {
-        this._ush.dispatchEvent(new CustomEvent('undo', {detail: {transactions: this._stack[this.position - 1].slice()}, bubbles: true, cancelable: false}));
-      }
-    }
-  };
-
-  UndoManager.prototype.redo = function () {
-    if (this.position > 0) {
-      for (var i = 0, n = this._stack[this.position - 1].length; i < n; i++) {
-        this._stack[this.position - 1][i].redo();
-      }
-      this.position--;
-
-      if (this._fireEvent) {
-        this._ush.dispatchEvent(new CustomEvent('redo', {detail: {transactions: this._stack[this.position].slice()}, bubbles: true, cancelable: false}));
-      }
-    }
-  };
-
-  UndoManager.prototype.item = function (index) {
-    if (index >= 0 && index < this.length) {
-      return this._stack[index].slice();
-    }
-    return null;
-  };
-
-  UndoManager.prototype.clearUndo = function () {
-    this._stack.length = this.length = this.position;
-  };
-
-  UndoManager.prototype.clearRedo = function () {
-    this._stack.splice(0, this.position);
-    this.position = 0;
-    this.length = this._stack.length;
-  };
-
-  return UndoManager;
-});
-
-
-define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(baseIndexOf) {
-
-  /** Used for native method references. */
-  var arrayProto = Array.prototype;
-
-  /** Native method references. */
-  var splice = arrayProto.splice;
-
-  /**
-   * Removes all provided values from `array` using `SameValueZero` for equality
-   * comparisons.
-   *
-   * **Notes:**
-   *  - Unlike `_.without`, this method mutates `array`.
-   *  - `SameValueZero` comparisons are like strict equality comparisons, e.g. `===`,
-   *    except that `NaN` matches `NaN`. See the [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-samevaluezero)
-   *    for more details.
-   *
-   * @static
-   * @memberOf _
-   * @category Array
-   * @param {Array} array The array to modify.
-   * @param {...*} [values] The values to remove.
-   * @returns {Array} Returns `array`.
-   * @example
-   *
-   * var array = [1, 2, 3, 1, 2, 3];
-   *
-   * _.pull(array, 2, 3);
-   * console.log(array);
-   * // => [1, 1]
-   */
-  function pull() {
-    var args = arguments,
-        array = args[0];
-
-    if (!(array && array.length)) {
-      return array;
-    }
-    var index = 0,
-        indexOf = baseIndexOf,
-        length = args.length;
-
-    while (++index < length) {
-      var fromIndex = 0,
-          value = args[index];
-
-      while ((fromIndex = indexOf(array, value, fromIndex)) > -1) {
-        splice.call(array, fromIndex, 1);
-      }
-    }
-    return array;
-  }
-
-  return pull;
-});
-
 /**
- *  Copyright (c) 2014, Facebook, Inc.
+ *  Copyright (c) 2014-2015, Facebook, Inc.
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
@@ -3536,9 +9,9 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
  */
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
-  typeof define === 'function' && define.amd ? define('immutable/dist/immutable',factory) :
+  typeof define === 'function' && define.amd ? define(factory) :
   global.Immutable = factory()
-}(this, function () { var SLICE$0 = Array.prototype.slice;
+}(this, function () { 'use strict';var SLICE$0 = Array.prototype.slice;
 
   function createClass(ctor, superClass) {
     if (superClass) {
@@ -3698,22 +171,22 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
   var ITERATOR_SYMBOL = REAL_ITERATOR_SYMBOL || FAUX_ITERATOR_SYMBOL;
 
 
-  function Iterator(next) {
+  function src_Iterator__Iterator(next) {
       this.next = next;
     }
 
-    Iterator.prototype.toString = function() {
+    src_Iterator__Iterator.prototype.toString = function() {
       return '[Iterator]';
     };
 
 
-  Iterator.KEYS = ITERATE_KEYS;
-  Iterator.VALUES = ITERATE_VALUES;
-  Iterator.ENTRIES = ITERATE_ENTRIES;
+  src_Iterator__Iterator.KEYS = ITERATE_KEYS;
+  src_Iterator__Iterator.VALUES = ITERATE_VALUES;
+  src_Iterator__Iterator.ENTRIES = ITERATE_ENTRIES;
 
-  Iterator.prototype.inspect =
-  Iterator.prototype.toSource = function () { return this.toString(); }
-  Iterator.prototype[ITERATOR_SYMBOL] = function () {
+  src_Iterator__Iterator.prototype.inspect =
+  src_Iterator__Iterator.prototype.toSource = function () { return this.toString(); }
+  src_Iterator__Iterator.prototype[ITERATOR_SYMBOL] = function () {
     return this;
   };
 
@@ -3806,15 +279,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
           keyedSeqFromValue(value);
     }
 
-    KeyedSeq.of = function(/*...values*/) {
-      return KeyedSeq(arguments);
-    };
-
     KeyedSeq.prototype.toKeyedSeq = function() {
-      return this;
-    };
-
-    KeyedSeq.prototype.toSeq = function() {
       return this;
     };
 
@@ -3906,7 +371,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       var array = this._array;
       var maxIndex = array.length - 1;
       var ii = 0;
-      return new Iterator(function() 
+      return new src_Iterator__Iterator(function() 
         {return ii > maxIndex ?
           iteratorDone() :
           iteratorValue(type, ii, array[reverse ? maxIndex - ii++ : ii++])}
@@ -3952,7 +417,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       var keys = this._keys;
       var maxIndex = keys.length - 1;
       var ii = 0;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         var key = keys[reverse ? maxIndex - ii : ii];
         return ii++ > maxIndex ?
           iteratorDone() :
@@ -3994,10 +459,10 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       var iterable = this._iterable;
       var iterator = getIterator(iterable);
       if (!isIterator(iterator)) {
-        return new Iterator(iteratorDone);
+        return new src_Iterator__Iterator(iteratorDone);
       }
       var iterations = 0;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         var step = iterator.next();
         return step.done ? step : iteratorValue(type, iterations++, step.value);
       });
@@ -4041,7 +506,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       var iterator = this._iterator;
       var cache = this._iteratorCache;
       var iterations = 0;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         if (iterations >= cache.length) {
           var step = iterator.next();
           if (step.done) {
@@ -4134,7 +599,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     if (cache) {
       var maxIndex = cache.length - 1;
       var ii = 0;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         var entry = cache[reverse ? maxIndex - ii : ii];
         return ii++ > maxIndex ?
           iteratorDone() :
@@ -4260,13 +725,13 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
   }
 
   function isPlainObj(value) {
-    return value && value.constructor === Object;
+    return value && (value.constructor === Object || value.constructor === undefined);
   }
 
-  var Math__imul =
+  var src_Math__imul =
     typeof Math.imul === 'function' && Math.imul(0xffffffff, 2) === -2 ?
     Math.imul :
-    function Math__imul(a, b) {
+    function src_Math__imul(a, b) {
       a = a | 0; // int
       b = b | 0; // int
       var c = a & 0xffff;
@@ -4405,7 +870,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
   // True if Object.defineProperty works as expected. IE8 fails this test.
   var canDefineProperty = (function() {
     try {
-      Object.defineProperty({}, 'x', {});
+      Object.defineProperty({}, '@', {});
       return true;
     } catch (e) {
       return false;
@@ -4503,7 +968,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       }
       var iterator = this._iter.__iterator(ITERATE_VALUES, reverse);
       var ii = reverse ? resolveSize(this) : 0;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         var step = iterator.next();
         return step.done ? step :
           iteratorValue(type, reverse ? --ii : ii++, step.value, step);
@@ -4531,7 +996,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     ToIndexedSequence.prototype.__iterator = function(type, reverse) {
       var iterator = this._iter.__iterator(ITERATE_VALUES, reverse);
       var iterations = 0;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         var step = iterator.next();
         return step.done ? step :
           iteratorValue(type, iterations++, step.value, step)
@@ -4556,7 +1021,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
     ToSetSequence.prototype.__iterator = function(type, reverse) {
       var iterator = this._iter.__iterator(ITERATE_VALUES, reverse);
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         var step = iterator.next();
         return step.done ? step :
           iteratorValue(type, step.value, step.value, step);
@@ -4588,7 +1053,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
     FromEntriesSequence.prototype.__iterator = function(type, reverse) {
       var iterator = this._iter.__iterator(ITERATE_VALUES, reverse);
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         while (true) {
           var step = iterator.next();
           if (step.done) {
@@ -4633,7 +1098,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     flipSequence.__iteratorUncached = function(type, reverse) {
       if (type === ITERATE_ENTRIES) {
         var iterator = iterable.__iterator(type, reverse);
-        return new Iterator(function()  {
+        return new src_Iterator__Iterator(function()  {
           var step = iterator.next();
           if (!step.done) {
             var k = step.value[0];
@@ -4670,7 +1135,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     }
     mappedSequence.__iteratorUncached = function (type, reverse) {
       var iterator = iterable.__iterator(ITERATE_ENTRIES, reverse);
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         var step = iterator.next();
         if (step.done) {
           return step;
@@ -4742,7 +1207,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     filterSequence.__iteratorUncached = function (type, reverse) {
       var iterator = iterable.__iterator(ITERATE_ENTRIES, reverse);
       var iterations = 0;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         while (true) {
           var step = iterator.next();
           if (step.done) {
@@ -4762,7 +1227,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
 
   function countByFactory(iterable, grouper, context) {
-    var groups = Map().asMutable();
+    var groups = src_Map__Map().asMutable();
     iterable.__iterate(function(v, k)  {
       groups.update(
         grouper.call(context, v, k, iterable),
@@ -4776,7 +1241,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
   function groupByFactory(iterable, grouper, context) {
     var isKeyedIter = isKeyed(iterable);
-    var groups = (isOrdered(iterable) ? OrderedMap() : Map()).asMutable();
+    var groups = (isOrdered(iterable) ? OrderedMap() : src_Map__Map()).asMutable();
     iterable.__iterate(function(v, k)  {
       groups.update(
         grouper.call(context, v, k, iterable),
@@ -4851,7 +1316,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       var iterator = sliceSize && iterable.__iterator(type, reverse);
       var skipped = 0;
       var iterations = 0;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         while (skipped++ !== resolvedBegin) {
           iterator.next();
         }
@@ -4891,7 +1356,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       }
       var iterator = iterable.__iterator(ITERATE_ENTRIES, reverse);
       var iterating = true;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         if (!iterating) {
           return iteratorDone();
         }
@@ -4937,7 +1402,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       var iterator = iterable.__iterator(ITERATE_ENTRIES, reverse);
       var skipping = true;
       var iterations = 0;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         var step, k, v;
         do {
           step = iterator.next();
@@ -5033,7 +1498,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       var iterator = iterable.__iterator(type, reverse);
       var stack = [];
       var iterations = 0;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         while (iterator) {
           var step = iterator.next();
           if (step.done !== false) {
@@ -5082,7 +1547,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       var iterator = iterable.__iterator(ITERATE_VALUES, reverse);
       var iterations = 0;
       var step;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         if (!step || iterations % 2) {
           step = iterator.next();
           if (step.done) {
@@ -5175,7 +1640,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       );
       var iterations = 0;
       var isDone = false;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         var steps;
         if (!isDone) {
           steps = iterators.map(function(i ) {return i.next()});
@@ -5255,11 +1720,11 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     return iter;
   }
 
-  createClass(Map, KeyedCollection);
+  createClass(src_Map__Map, KeyedCollection);
 
     // @pragma Construction
 
-    function Map(value) {
+    function src_Map__Map(value) {
       return value === null || value === undefined ? emptyMap() :
         isMap(value) ? value :
         emptyMap().withMutations(function(map ) {
@@ -5269,13 +1734,13 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
         });
     }
 
-    Map.prototype.toString = function() {
+    src_Map__Map.prototype.toString = function() {
       return this.__toString('Map {', '}');
     };
 
     // @pragma Access
 
-    Map.prototype.get = function(k, notSetValue) {
+    src_Map__Map.prototype.get = function(k, notSetValue) {
       return this._root ?
         this._root.get(0, undefined, k, notSetValue) :
         notSetValue;
@@ -5283,29 +1748,29 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
     // @pragma Modification
 
-    Map.prototype.set = function(k, v) {
+    src_Map__Map.prototype.set = function(k, v) {
       return updateMap(this, k, v);
     };
 
-    Map.prototype.setIn = function(keyPath, v) {
+    src_Map__Map.prototype.setIn = function(keyPath, v) {
       return this.updateIn(keyPath, NOT_SET, function()  {return v});
     };
 
-    Map.prototype.remove = function(k) {
+    src_Map__Map.prototype.remove = function(k) {
       return updateMap(this, k, NOT_SET);
     };
 
-    Map.prototype.deleteIn = function(keyPath) {
+    src_Map__Map.prototype.deleteIn = function(keyPath) {
       return this.updateIn(keyPath, function()  {return NOT_SET});
     };
 
-    Map.prototype.update = function(k, notSetValue, updater) {
+    src_Map__Map.prototype.update = function(k, notSetValue, updater) {
       return arguments.length === 1 ?
         k(this) :
         this.updateIn([k], notSetValue, updater);
     };
 
-    Map.prototype.updateIn = function(keyPath, notSetValue, updater) {
+    src_Map__Map.prototype.updateIn = function(keyPath, notSetValue, updater) {
       if (!updater) {
         updater = notSetValue;
         notSetValue = undefined;
@@ -5319,7 +1784,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       return updatedValue === NOT_SET ? undefined : updatedValue;
     };
 
-    Map.prototype.clear = function() {
+    src_Map__Map.prototype.clear = function() {
       if (this.size === 0) {
         return this;
       }
@@ -5335,65 +1800,65 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
     // @pragma Composition
 
-    Map.prototype.merge = function(/*...iters*/) {
+    src_Map__Map.prototype.merge = function(/*...iters*/) {
       return mergeIntoMapWith(this, undefined, arguments);
     };
 
-    Map.prototype.mergeWith = function(merger) {var iters = SLICE$0.call(arguments, 1);
+    src_Map__Map.prototype.mergeWith = function(merger) {var iters = SLICE$0.call(arguments, 1);
       return mergeIntoMapWith(this, merger, iters);
     };
 
-    Map.prototype.mergeIn = function(keyPath) {var iters = SLICE$0.call(arguments, 1);
+    src_Map__Map.prototype.mergeIn = function(keyPath) {var iters = SLICE$0.call(arguments, 1);
       return this.updateIn(keyPath, emptyMap(), function(m ) {return m.merge.apply(m, iters)});
     };
 
-    Map.prototype.mergeDeep = function(/*...iters*/) {
+    src_Map__Map.prototype.mergeDeep = function(/*...iters*/) {
       return mergeIntoMapWith(this, deepMerger(undefined), arguments);
     };
 
-    Map.prototype.mergeDeepWith = function(merger) {var iters = SLICE$0.call(arguments, 1);
+    src_Map__Map.prototype.mergeDeepWith = function(merger) {var iters = SLICE$0.call(arguments, 1);
       return mergeIntoMapWith(this, deepMerger(merger), iters);
     };
 
-    Map.prototype.mergeDeepIn = function(keyPath) {var iters = SLICE$0.call(arguments, 1);
+    src_Map__Map.prototype.mergeDeepIn = function(keyPath) {var iters = SLICE$0.call(arguments, 1);
       return this.updateIn(keyPath, emptyMap(), function(m ) {return m.mergeDeep.apply(m, iters)});
     };
 
-    Map.prototype.sort = function(comparator) {
+    src_Map__Map.prototype.sort = function(comparator) {
       // Late binding
       return OrderedMap(sortFactory(this, comparator));
     };
 
-    Map.prototype.sortBy = function(mapper, comparator) {
+    src_Map__Map.prototype.sortBy = function(mapper, comparator) {
       // Late binding
       return OrderedMap(sortFactory(this, comparator, mapper));
     };
 
     // @pragma Mutability
 
-    Map.prototype.withMutations = function(fn) {
+    src_Map__Map.prototype.withMutations = function(fn) {
       var mutable = this.asMutable();
       fn(mutable);
       return mutable.wasAltered() ? mutable.__ensureOwner(this.__ownerID) : this;
     };
 
-    Map.prototype.asMutable = function() {
+    src_Map__Map.prototype.asMutable = function() {
       return this.__ownerID ? this : this.__ensureOwner(new OwnerID());
     };
 
-    Map.prototype.asImmutable = function() {
+    src_Map__Map.prototype.asImmutable = function() {
       return this.__ensureOwner();
     };
 
-    Map.prototype.wasAltered = function() {
+    src_Map__Map.prototype.wasAltered = function() {
       return this.__altered;
     };
 
-    Map.prototype.__iterator = function(type, reverse) {
+    src_Map__Map.prototype.__iterator = function(type, reverse) {
       return new MapIterator(this, type, reverse);
     };
 
-    Map.prototype.__iterate = function(fn, reverse) {var this$0 = this;
+    src_Map__Map.prototype.__iterate = function(fn, reverse) {var this$0 = this;
       var iterations = 0;
       this._root && this._root.iterate(function(entry ) {
         iterations++;
@@ -5402,7 +1867,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       return iterations;
     };
 
-    Map.prototype.__ensureOwner = function(ownerID) {
+    src_Map__Map.prototype.__ensureOwner = function(ownerID) {
       if (ownerID === this.__ownerID) {
         return this;
       }
@@ -5419,11 +1884,11 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     return !!(maybeMap && maybeMap[IS_MAP_SENTINEL]);
   }
 
-  Map.isMap = isMap;
+  src_Map__Map.isMap = isMap;
 
   var IS_MAP_SENTINEL = '@@__IMMUTABLE_MAP__@@';
 
-  var MapPrototype = Map.prototype;
+  var MapPrototype = src_Map__Map.prototype;
   MapPrototype[IS_MAP_SENTINEL] = true;
   MapPrototype[DELETE] = MapPrototype.remove;
   MapPrototype.removeIn = MapPrototype.deleteIn;
@@ -5767,7 +2232,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     return fn(this.entry);
   }
 
-  createClass(MapIterator, Iterator);
+  createClass(MapIterator, src_Iterator__Iterator);
 
     function MapIterator(map, type, reverse) {
       this._type = type;
@@ -6200,7 +2665,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     List.prototype.__iterator = function(type, reverse) {
       var index = 0;
       var values = iterateList(this, reverse);
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         var value = values();
         return value === DONE ?
           iteratorDone() :
@@ -6640,7 +3105,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     return size < SIZE ? 0 : (((size - 1) >>> SHIFT) << SHIFT);
   }
 
-  createClass(OrderedMap, Map);
+  createClass(OrderedMap, src_Map__Map);
 
     // @pragma Construction
 
@@ -6814,6 +3279,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
     Stack.prototype.get = function(index, notSetValue) {
       var head = this._head;
+      index = wrapIndex(this, index);
       while (head && index--) {
         head = head.next;
       }
@@ -6946,7 +3412,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
     Stack.prototype.__iterate = function(fn, reverse) {
       if (reverse) {
-        return this.toSeq().cacheResult.__iterate(fn, reverse);
+        return this.reverse().__iterate(fn);
       }
       var iterations = 0;
       var node = this._head;
@@ -6961,11 +3427,11 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
     Stack.prototype.__iterator = function(type, reverse) {
       if (reverse) {
-        return this.toSeq().cacheResult().__iterator(type, reverse);
+        return this.reverse().__iterator(type);
       }
       var iterations = 0;
       var node = this._head;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         if (node) {
           var value = node.value;
           node = node.next;
@@ -7007,11 +3473,11 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     return EMPTY_STACK || (EMPTY_STACK = makeStack(0));
   }
 
-  createClass(Set, SetCollection);
+  createClass(src_Set__Set, SetCollection);
 
     // @pragma Construction
 
-    function Set(value) {
+    function src_Set__Set(value) {
       return value === null || value === undefined ? emptySet() :
         isSet(value) ? value :
         emptySet().withMutations(function(set ) {
@@ -7021,41 +3487,41 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
         });
     }
 
-    Set.of = function(/*...values*/) {
+    src_Set__Set.of = function(/*...values*/) {
       return this(arguments);
     };
 
-    Set.fromKeys = function(value) {
+    src_Set__Set.fromKeys = function(value) {
       return this(KeyedIterable(value).keySeq());
     };
 
-    Set.prototype.toString = function() {
+    src_Set__Set.prototype.toString = function() {
       return this.__toString('Set {', '}');
     };
 
     // @pragma Access
 
-    Set.prototype.has = function(value) {
+    src_Set__Set.prototype.has = function(value) {
       return this._map.has(value);
     };
 
     // @pragma Modification
 
-    Set.prototype.add = function(value) {
+    src_Set__Set.prototype.add = function(value) {
       return updateSet(this, this._map.set(value, true));
     };
 
-    Set.prototype.remove = function(value) {
+    src_Set__Set.prototype.remove = function(value) {
       return updateSet(this, this._map.remove(value));
     };
 
-    Set.prototype.clear = function() {
+    src_Set__Set.prototype.clear = function() {
       return updateSet(this, this._map.clear());
     };
 
     // @pragma Composition
 
-    Set.prototype.union = function() {var iters = SLICE$0.call(arguments, 0);
+    src_Set__Set.prototype.union = function() {var iters = SLICE$0.call(arguments, 0);
       iters = iters.filter(function(x ) {return x.size !== 0});
       if (iters.length === 0) {
         return this;
@@ -7070,7 +3536,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       });
     };
 
-    Set.prototype.intersect = function() {var iters = SLICE$0.call(arguments, 0);
+    src_Set__Set.prototype.intersect = function() {var iters = SLICE$0.call(arguments, 0);
       if (iters.length === 0) {
         return this;
       }
@@ -7085,7 +3551,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       });
     };
 
-    Set.prototype.subtract = function() {var iters = SLICE$0.call(arguments, 0);
+    src_Set__Set.prototype.subtract = function() {var iters = SLICE$0.call(arguments, 0);
       if (iters.length === 0) {
         return this;
       }
@@ -7100,37 +3566,37 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       });
     };
 
-    Set.prototype.merge = function() {
+    src_Set__Set.prototype.merge = function() {
       return this.union.apply(this, arguments);
     };
 
-    Set.prototype.mergeWith = function(merger) {var iters = SLICE$0.call(arguments, 1);
+    src_Set__Set.prototype.mergeWith = function(merger) {var iters = SLICE$0.call(arguments, 1);
       return this.union.apply(this, iters);
     };
 
-    Set.prototype.sort = function(comparator) {
+    src_Set__Set.prototype.sort = function(comparator) {
       // Late binding
       return OrderedSet(sortFactory(this, comparator));
     };
 
-    Set.prototype.sortBy = function(mapper, comparator) {
+    src_Set__Set.prototype.sortBy = function(mapper, comparator) {
       // Late binding
       return OrderedSet(sortFactory(this, comparator, mapper));
     };
 
-    Set.prototype.wasAltered = function() {
+    src_Set__Set.prototype.wasAltered = function() {
       return this._map.wasAltered();
     };
 
-    Set.prototype.__iterate = function(fn, reverse) {var this$0 = this;
+    src_Set__Set.prototype.__iterate = function(fn, reverse) {var this$0 = this;
       return this._map.__iterate(function(_, k)  {return fn(k, k, this$0)}, reverse);
     };
 
-    Set.prototype.__iterator = function(type, reverse) {
+    src_Set__Set.prototype.__iterator = function(type, reverse) {
       return this._map.map(function(_, k)  {return k}).__iterator(type, reverse);
     };
 
-    Set.prototype.__ensureOwner = function(ownerID) {
+    src_Set__Set.prototype.__ensureOwner = function(ownerID) {
       if (ownerID === this.__ownerID) {
         return this;
       }
@@ -7148,11 +3614,11 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     return !!(maybeSet && maybeSet[IS_SET_SENTINEL]);
   }
 
-  Set.isSet = isSet;
+  src_Set__Set.isSet = isSet;
 
   var IS_SET_SENTINEL = '@@__IMMUTABLE_SET__@@';
 
-  var SetPrototype = Set.prototype;
+  var SetPrototype = src_Set__Set.prototype;
   SetPrototype[IS_SET_SENTINEL] = true;
   SetPrototype[DELETE] = SetPrototype.remove;
   SetPrototype.mergeDeep = SetPrototype.merge;
@@ -7188,7 +3654,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     return EMPTY_SET || (EMPTY_SET = makeSet(emptyMap()));
   }
 
-  createClass(OrderedSet, Set);
+  createClass(OrderedSet, src_Set__Set);
 
     // @pragma Construction
 
@@ -7247,7 +3713,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
         if (!(this instanceof RecordType)) {
           return new RecordType(values);
         }
-        this._map = Map(values);
+        this._map = src_Map__Map(values);
       };
 
       var keys = Object.keys(defaultValues);
@@ -7534,7 +4000,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       var step = this._step;
       var value = reverse ? this._start + maxIndex * step : this._start;
       var ii = 0;
-      return new Iterator(function()  {
+      return new src_Iterator__Iterator(function()  {
         var v = value;
         value += reverse ? -step : step;
         return ii > maxIndex ? iteratorDone() : iteratorValue(type, ii++, v);
@@ -7618,7 +4084,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
     Repeat.prototype.__iterator = function(type, reverse) {var this$0 = this;
       var ii = 0;
-      return new Iterator(function() 
+      return new src_Iterator__Iterator(function() 
         {return ii < this$0.size ? iteratorValue(type, ii++, this$0._value) : iteratorDone()}
       );
     };
@@ -7643,7 +4109,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
     return ctor;
   }
 
-  Iterable.Iterator = Iterator;
+  Iterable.Iterator = src_Iterator__Iterator;
 
   mixin(Iterable, {
 
@@ -7678,7 +4144,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
     toMap: function() {
       // Use Late Binding here to solve the circular dependency.
-      return Map(this.toKeyedSeq());
+      return src_Map__Map(this.toKeyedSeq());
     },
 
     toObject: function() {
@@ -7700,7 +4166,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
     toSet: function() {
       // Use Late Binding here to solve the circular dependency.
-      return Set(isKeyed(this) ? this.valueSeq() : this);
+      return src_Set__Set(isKeyed(this) ? this.valueSeq() : this);
     },
 
     toSetSeq: function() {
@@ -7800,7 +4266,7 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
       var isFirst = true;
       this.__iterate(function(v ) {
         isFirst ? (isFirst = false) : (joined += separator);
-        joined += v !== null && v !== undefined ? v : '';
+        joined += v !== null && v !== undefined ? v.toString() : '';
       });
       return joined;
     },
@@ -8351,12 +4817,12 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
   }
 
   function murmurHashOfSize(size, h) {
-    h = Math__imul(h, 0xCC9E2D51);
-    h = Math__imul(h << 15 | h >>> -15, 0x1B873593);
-    h = Math__imul(h << 13 | h >>> -13, 5);
+    h = src_Math__imul(h, 0xCC9E2D51);
+    h = src_Math__imul(h << 15 | h >>> -15, 0x1B873593);
+    h = src_Math__imul(h << 13 | h >>> -13, 5);
     h = (h + 0xE6546B64 | 0) ^ size;
-    h = Math__imul(h ^ h >>> 16, 0x85EBCA6B);
-    h = Math__imul(h ^ h >>> 13, 0xC2B2AE35);
+    h = src_Math__imul(h ^ h >>> 16, 0x85EBCA6B);
+    h = src_Math__imul(h ^ h >>> 13, 0xC2B2AE35);
     h = smi(h ^ h >>> 16);
     return h;
   }
@@ -8371,11 +4837,11 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
 
     Seq: Seq,
     Collection: Collection,
-    Map: Map,
+    Map: src_Map__Map,
     OrderedMap: OrderedMap,
     List: List,
     Stack: Stack,
-    Set: Set,
+    Set: src_Set__Set,
     OrderedSet: OrderedSet,
 
     Record: Record,
@@ -8390,561 +4856,2013 @@ define('lodash-amd/modern/array/pull',['../internal/baseIndexOf'], function(base
   return Immutable;
 
 }));
-define('event-emitter',['lodash-amd/modern/array/pull',
-  'immutable/dist/immutable'], function (pull, Immutable) {
-
-  
-
-  // TODO: once
-  // TODO: unit test
-  // Good example of a complete(?) implementation: https://github.com/Wolfy87/EventEmitter
-  function EventEmitter() {
-    this._listeners = {};
-  }
-
-  EventEmitter.prototype.on = function (eventName, fn) {
-    var listeners = this._listeners[eventName] || Immutable.Set();
-
-    this._listeners[eventName] = listeners.add(fn);
-  };
-
-  EventEmitter.prototype.off = function (eventName, fn) {
-    var listeners = this._listeners[eventName] || Immutable.Set();
-    if (fn) {
-      this._listeners[eventName] = listeners.delete(fn);
+},{}],2:[function(require,module,exports){
+var baseFlatten = require('../internal/baseFlatten'), isIterateeCall = require('../internal/isIterateeCall');
+function flatten(array, isDeep, guard) {
+    var length = array ? array.length : 0;
+    if (guard && isIterateeCall(array, isDeep, guard)) {
+        isDeep = false;
+    }
+    return length ? baseFlatten(array, isDeep, false, 0) : [];
+}
+module.exports = flatten;
+},{"../internal/baseFlatten":11,"../internal/isIterateeCall":20}],3:[function(require,module,exports){
+var undefined;
+function last(array) {
+    var length = array ? array.length : 0;
+    return length ? array[length - 1] : undefined;
+}
+module.exports = last;
+},{}],4:[function(require,module,exports){
+var baseIndexOf = require('../internal/baseIndexOf');
+var arrayProto = Array.prototype;
+var splice = arrayProto.splice;
+function pull() {
+    var args = arguments, array = args[0];
+    if (!(array && array.length)) {
+        return array;
+    }
+    var index = 0, indexOf = baseIndexOf, length = args.length;
+    while (++index < length) {
+        var fromIndex = 0, value = args[index];
+        while ((fromIndex = indexOf(array, value, fromIndex)) > -1) {
+            splice.call(array, fromIndex, 1);
+        }
+    }
+    return array;
+}
+module.exports = pull;
+},{"../internal/baseIndexOf":12}],5:[function(require,module,exports){
+var includes = require('./includes');
+module.exports = includes;
+},{"./includes":6}],6:[function(require,module,exports){
+var baseIndexOf = require('../internal/baseIndexOf'), isArray = require('../lang/isArray'), isLength = require('../internal/isLength'), isString = require('../lang/isString'), values = require('../object/values');
+var nativeMax = Math.max;
+function includes(collection, target, fromIndex) {
+    var length = collection ? collection.length : 0;
+    if (!isLength(length)) {
+        collection = values(collection);
+        length = collection.length;
+    }
+    if (!length) {
+        return false;
+    }
+    if (typeof fromIndex == 'number') {
+        fromIndex = fromIndex < 0 ? nativeMax(length + fromIndex, 0) : fromIndex || 0;
     } else {
-      this._listeners[eventName] = listeners.clear();
+        fromIndex = 0;
     }
-  };
-
-  EventEmitter.prototype.trigger = function (eventName, args) {
-
-    //fire events like my:custom:event -> my:custom -> my
-    var events = eventName.split(':');
-    while(!!events.length){
-      var currentEvent = events.join(':');
-      var listeners = this._listeners[currentEvent] || Immutable.Set();
-      //trigger handles
-      listeners.forEach(function (listener) {
-        listener.apply(null, args);
-      });
-      events.splice((events.length - 1), 1);
+    return typeof collection == 'string' || !isArray(collection) && isString(collection) ? fromIndex < length && collection.indexOf(target, fromIndex) > -1 : baseIndexOf(collection, target, fromIndex) > -1;
+}
+module.exports = includes;
+},{"../internal/baseIndexOf":12,"../internal/isLength":21,"../lang/isArray":26,"../lang/isString":29,"../object/values":35}],7:[function(require,module,exports){
+function arrayCopy(source, array) {
+    var index = -1, length = source.length;
+    array || (array = Array(length));
+    while (++index < length) {
+        array[index] = source[index];
     }
-  };
-
-  return EventEmitter;
-
-});
-
-define('lodash-amd/modern/internal/assignDefaults',[], function() {
-
-  /**
-   * Used by `_.defaults` to customize its `_.assign` use.
-   *
-   * @private
-   * @param {*} objectValue The destination object property value.
-   * @param {*} sourceValue The source object property value.
-   * @returns {*} Returns the value to assign to the destination object.
-   */
-  function assignDefaults(objectValue, sourceValue) {
+    return array;
+}
+module.exports = arrayCopy;
+},{}],8:[function(require,module,exports){
+function assignDefaults(objectValue, sourceValue) {
     return typeof objectValue == 'undefined' ? sourceValue : objectValue;
-  }
-
-  return assignDefaults;
-});
-
-define('lodash-amd/modern/object/defaults',['../internal/arrayCopy', './assign', '../internal/assignDefaults'], function(arrayCopy, assign, assignDefaults) {
-
-  /** Used as a safe reference for `undefined` in pre-ES5 environments. */
-  var undefined;
-
-  /**
-   * Assigns own enumerable properties of source object(s) to the destination
-   * object for all destination properties that resolve to `undefined`. Once a
-   * property is set, additional values of the same property are ignored.
-   *
-   * @static
-   * @memberOf _
-   * @category Object
-   * @param {Object} object The destination object.
-   * @param {...Object} [sources] The source objects.
-   * @returns {Object} Returns `object`.
-   * @example
-   *
-   * _.defaults({ 'user': 'barney' }, { 'age': 36 }, { 'user': 'fred' });
-   * // => { 'user': 'barney', 'age': 36 }
-   */
-  function defaults(object) {
+}
+module.exports = assignDefaults;
+},{}],9:[function(require,module,exports){
+var baseCopy = require('./baseCopy'), keys = require('../object/keys');
+function baseAssign(object, source, customizer) {
+    var props = keys(source);
+    if (!customizer) {
+        return baseCopy(source, object, props);
+    }
+    var index = -1, length = props.length;
+    while (++index < length) {
+        var key = props[index], value = object[key], result = customizer(value, source[key], key, object, source);
+        if ((result === result ? result !== value : value === value) || typeof value == 'undefined' && !(key in object)) {
+            object[key] = result;
+        }
+    }
+    return object;
+}
+module.exports = baseAssign;
+},{"../object/keys":33,"./baseCopy":10}],10:[function(require,module,exports){
+function baseCopy(source, object, props) {
+    if (!props) {
+        props = object;
+        object = {};
+    }
+    var index = -1, length = props.length;
+    while (++index < length) {
+        var key = props[index];
+        object[key] = source[key];
+    }
+    return object;
+}
+module.exports = baseCopy;
+},{}],11:[function(require,module,exports){
+var isArguments = require('../lang/isArguments'), isArray = require('../lang/isArray'), isLength = require('./isLength'), isObjectLike = require('./isObjectLike');
+function baseFlatten(array, isDeep, isStrict, fromIndex) {
+    var index = fromIndex - 1, length = array.length, resIndex = -1, result = [];
+    while (++index < length) {
+        var value = array[index];
+        if (isObjectLike(value) && isLength(value.length) && (isArray(value) || isArguments(value))) {
+            if (isDeep) {
+                value = baseFlatten(value, isDeep, isStrict, 0);
+            }
+            var valIndex = -1, valLength = value.length;
+            result.length += valLength;
+            while (++valIndex < valLength) {
+                result[++resIndex] = value[valIndex];
+            }
+        } else if (!isStrict) {
+            result[++resIndex] = value;
+        }
+    }
+    return result;
+}
+module.exports = baseFlatten;
+},{"../lang/isArguments":25,"../lang/isArray":26,"./isLength":21,"./isObjectLike":22}],12:[function(require,module,exports){
+var indexOfNaN = require('./indexOfNaN');
+function baseIndexOf(array, value, fromIndex) {
+    if (value !== value) {
+        return indexOfNaN(array, fromIndex);
+    }
+    var index = fromIndex - 1, length = array.length;
+    while (++index < length) {
+        if (array[index] === value) {
+            return index;
+        }
+    }
+    return -1;
+}
+module.exports = baseIndexOf;
+},{"./indexOfNaN":18}],13:[function(require,module,exports){
+function baseToString(value) {
+    if (typeof value == 'string') {
+        return value;
+    }
+    return value == null ? '' : value + '';
+}
+module.exports = baseToString;
+},{}],14:[function(require,module,exports){
+function baseValues(object, props) {
+    var index = -1, length = props.length, result = Array(length);
+    while (++index < length) {
+        result[index] = object[props[index]];
+    }
+    return result;
+}
+module.exports = baseValues;
+},{}],15:[function(require,module,exports){
+var identity = require('../utility/identity');
+function bindCallback(func, thisArg, argCount) {
+    if (typeof func != 'function') {
+        return identity;
+    }
+    if (typeof thisArg == 'undefined') {
+        return func;
+    }
+    switch (argCount) {
+    case 1:
+        return function (value) {
+            return func.call(thisArg, value);
+        };
+    case 3:
+        return function (value, index, collection) {
+            return func.call(thisArg, value, index, collection);
+        };
+    case 4:
+        return function (accumulator, value, index, collection) {
+            return func.call(thisArg, accumulator, value, index, collection);
+        };
+    case 5:
+        return function (value, other, key, object, source) {
+            return func.call(thisArg, value, other, key, object, source);
+        };
+    }
+    return function () {
+        return func.apply(thisArg, arguments);
+    };
+}
+module.exports = bindCallback;
+},{"../utility/identity":39}],16:[function(require,module,exports){
+var bindCallback = require('./bindCallback'), isIterateeCall = require('./isIterateeCall');
+function createAssigner(assigner) {
+    return function () {
+        var args = arguments, length = args.length, object = args[0];
+        if (length < 2 || object == null) {
+            return object;
+        }
+        var customizer = args[length - 2], thisArg = args[length - 1], guard = args[3];
+        if (length > 3 && typeof customizer == 'function') {
+            customizer = bindCallback(customizer, thisArg, 5);
+            length -= 2;
+        } else {
+            customizer = length > 2 && typeof thisArg == 'function' ? thisArg : null;
+            length -= customizer ? 1 : 0;
+        }
+        if (guard && isIterateeCall(args[1], args[2], guard)) {
+            customizer = length == 3 ? null : customizer;
+            length = 2;
+        }
+        var index = 0;
+        while (++index < length) {
+            var source = args[index];
+            if (source) {
+                assigner(object, source, customizer);
+            }
+        }
+        return object;
+    };
+}
+module.exports = createAssigner;
+},{"./bindCallback":15,"./isIterateeCall":20}],17:[function(require,module,exports){
+var htmlEscapes = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        '\'': '&#39;',
+        '`': '&#96;'
+    };
+function escapeHtmlChar(chr) {
+    return htmlEscapes[chr];
+}
+module.exports = escapeHtmlChar;
+},{}],18:[function(require,module,exports){
+function indexOfNaN(array, fromIndex, fromRight) {
+    var length = array.length, index = fromIndex + (fromRight ? 0 : -1);
+    while (fromRight ? index-- : ++index < length) {
+        var other = array[index];
+        if (other !== other) {
+            return index;
+        }
+    }
+    return -1;
+}
+module.exports = indexOfNaN;
+},{}],19:[function(require,module,exports){
+var MAX_SAFE_INTEGER = Math.pow(2, 53) - 1;
+function isIndex(value, length) {
+    value = +value;
+    length = length == null ? MAX_SAFE_INTEGER : length;
+    return value > -1 && value % 1 == 0 && value < length;
+}
+module.exports = isIndex;
+},{}],20:[function(require,module,exports){
+var isIndex = require('./isIndex'), isLength = require('./isLength'), isObject = require('../lang/isObject');
+function isIterateeCall(value, index, object) {
+    if (!isObject(object)) {
+        return false;
+    }
+    var type = typeof index;
+    if (type == 'number') {
+        var length = object.length, prereq = isLength(length) && isIndex(index, length);
+    } else {
+        prereq = type == 'string' && index in object;
+    }
+    if (prereq) {
+        var other = object[index];
+        return value === value ? value === other : other !== other;
+    }
+    return false;
+}
+module.exports = isIterateeCall;
+},{"../lang/isObject":28,"./isIndex":19,"./isLength":21}],21:[function(require,module,exports){
+var MAX_SAFE_INTEGER = Math.pow(2, 53) - 1;
+function isLength(value) {
+    return typeof value == 'number' && value > -1 && value % 1 == 0 && value <= MAX_SAFE_INTEGER;
+}
+module.exports = isLength;
+},{}],22:[function(require,module,exports){
+function isObjectLike(value) {
+    return value && typeof value == 'object' || false;
+}
+module.exports = isObjectLike;
+},{}],23:[function(require,module,exports){
+(function (global){
+var objectTypes = {
+        'function': true,
+        'object': true
+    };
+var freeExports = objectTypes[typeof exports] && exports && !exports.nodeType && exports;
+var freeModule = objectTypes[typeof module] && module && !module.nodeType && module;
+var freeGlobal = freeExports && freeModule && typeof global == 'object' && global;
+var freeWindow = objectTypes[typeof window] && window;
+var root = freeGlobal || freeWindow !== (this && this.window) && freeWindow || this;
+module.exports = root;
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{}],24:[function(require,module,exports){
+var isArguments = require('../lang/isArguments'), isArray = require('../lang/isArray'), isIndex = require('./isIndex'), isLength = require('./isLength'), keysIn = require('../object/keysIn'), support = require('../support');
+var objectProto = Object.prototype;
+var hasOwnProperty = objectProto.hasOwnProperty;
+function shimKeys(object) {
+    var props = keysIn(object), propsLength = props.length, length = propsLength && object.length;
+    var allowIndexes = length && isLength(length) && (isArray(object) || support.nonEnumArgs && isArguments(object));
+    var index = -1, result = [];
+    while (++index < propsLength) {
+        var key = props[index];
+        if (allowIndexes && isIndex(key, length) || hasOwnProperty.call(object, key)) {
+            result.push(key);
+        }
+    }
+    return result;
+}
+module.exports = shimKeys;
+},{"../lang/isArguments":25,"../lang/isArray":26,"../object/keysIn":34,"../support":38,"./isIndex":19,"./isLength":21}],25:[function(require,module,exports){
+var isLength = require('../internal/isLength'), isObjectLike = require('../internal/isObjectLike');
+var undefined;
+var argsTag = '[object Arguments]';
+var objectProto = Object.prototype;
+var objToString = objectProto.toString;
+function isArguments(value) {
+    var length = isObjectLike(value) ? value.length : undefined;
+    return isLength(length) && objToString.call(value) == argsTag || false;
+}
+module.exports = isArguments;
+},{"../internal/isLength":21,"../internal/isObjectLike":22}],26:[function(require,module,exports){
+var isLength = require('../internal/isLength'), isNative = require('./isNative'), isObjectLike = require('../internal/isObjectLike');
+var arrayTag = '[object Array]';
+var objectProto = Object.prototype;
+var objToString = objectProto.toString;
+var nativeIsArray = isNative(nativeIsArray = Array.isArray) && nativeIsArray;
+var isArray = nativeIsArray || function (value) {
+        return isObjectLike(value) && isLength(value.length) && objToString.call(value) == arrayTag || false;
+    };
+module.exports = isArray;
+},{"../internal/isLength":21,"../internal/isObjectLike":22,"./isNative":27}],27:[function(require,module,exports){
+var escapeRegExp = require('../string/escapeRegExp'), isObjectLike = require('../internal/isObjectLike');
+var funcTag = '[object Function]';
+var reHostCtor = /^\[object .+?Constructor\]$/;
+var objectProto = Object.prototype;
+var fnToString = Function.prototype.toString;
+var objToString = objectProto.toString;
+var reNative = RegExp('^' + escapeRegExp(objToString).replace(/toString|(function).*?(?=\\\()| for .+?(?=\\\])/g, '$1.*?') + '$');
+function isNative(value) {
+    if (value == null) {
+        return false;
+    }
+    if (objToString.call(value) == funcTag) {
+        return reNative.test(fnToString.call(value));
+    }
+    return isObjectLike(value) && reHostCtor.test(value) || false;
+}
+module.exports = isNative;
+},{"../internal/isObjectLike":22,"../string/escapeRegExp":37}],28:[function(require,module,exports){
+function isObject(value) {
+    var type = typeof value;
+    return type == 'function' || value && type == 'object' || false;
+}
+module.exports = isObject;
+},{}],29:[function(require,module,exports){
+var isObjectLike = require('../internal/isObjectLike');
+var stringTag = '[object String]';
+var objectProto = Object.prototype;
+var objToString = objectProto.toString;
+function isString(value) {
+    return typeof value == 'string' || isObjectLike(value) && objToString.call(value) == stringTag || false;
+}
+module.exports = isString;
+},{"../internal/isObjectLike":22}],30:[function(require,module,exports){
+var arrayCopy = require('../internal/arrayCopy'), isLength = require('../internal/isLength'), values = require('../object/values');
+function toArray(value) {
+    var length = value ? value.length : 0;
+    if (!isLength(length)) {
+        return values(value);
+    }
+    if (!length) {
+        return [];
+    }
+    return arrayCopy(value);
+}
+module.exports = toArray;
+},{"../internal/arrayCopy":7,"../internal/isLength":21,"../object/values":35}],31:[function(require,module,exports){
+var baseAssign = require('../internal/baseAssign'), createAssigner = require('../internal/createAssigner');
+var assign = createAssigner(baseAssign);
+module.exports = assign;
+},{"../internal/baseAssign":9,"../internal/createAssigner":16}],32:[function(require,module,exports){
+var arrayCopy = require('../internal/arrayCopy'), assign = require('./assign'), assignDefaults = require('../internal/assignDefaults');
+var undefined;
+function defaults(object) {
     if (object == null) {
-      return object;
+        return object;
     }
     var args = arrayCopy(arguments);
     args.push(assignDefaults);
     return assign.apply(undefined, args);
-  }
-
-  return defaults;
-});
-
-define('config',[
-  'lodash-amd/modern/object/defaults'
-], function (defaults) {
-
-  var blockModePlugins = [
-    'setRootPElement',
-    'enforcePElements',
-    'ensureSelectableContainers',
-  ],
-  inlineModePlugins = [
-    'inlineElementsMode'
-  ],
-  defaultOptions = {
-    allowBlockElements: true,
-    debug: false,
-    undo: {
-      manager: false,
-      enabled: true,
-      limit: 100,
-      interval: 250
-    },
-    defaultCommandPatches: [
-      'bold',
-      'indent',
-      'insertHTML',
-      'insertList',
-      'outdent',
-      'createLink'
-    ],
-
-    defaultPlugins: blockModePlugins.concat(inlineModePlugins),
-
-    defaultFormatters: [
-      'escapeHtmlCharactersFormatter',
-      'replaceNbspCharsFormatter'
-    ]
-  };
-
-  /**
-   * Overrides defaults with user's options
-   *
-   * @param  {Object} userSuppliedOptions The user's options
-   * @return {Object}                     The overridden options
-   */
-  function checkOptions(userSuppliedOptions) {
+}
+module.exports = defaults;
+},{"../internal/arrayCopy":7,"../internal/assignDefaults":8,"./assign":31}],33:[function(require,module,exports){
+var isLength = require('../internal/isLength'), isNative = require('../lang/isNative'), isObject = require('../lang/isObject'), shimKeys = require('../internal/shimKeys');
+var nativeKeys = isNative(nativeKeys = Object.keys) && nativeKeys;
+var keys = !nativeKeys ? shimKeys : function (object) {
+        if (object) {
+            var Ctor = object.constructor, length = object.length;
+        }
+        if (typeof Ctor == 'function' && Ctor.prototype === object || typeof object != 'function' && (length && isLength(length))) {
+            return shimKeys(object);
+        }
+        return isObject(object) ? nativeKeys(object) : [];
+    };
+module.exports = keys;
+},{"../internal/isLength":21,"../internal/shimKeys":24,"../lang/isNative":27,"../lang/isObject":28}],34:[function(require,module,exports){
+var isArguments = require('../lang/isArguments'), isArray = require('../lang/isArray'), isIndex = require('../internal/isIndex'), isLength = require('../internal/isLength'), isObject = require('../lang/isObject'), support = require('../support');
+var objectProto = Object.prototype;
+var hasOwnProperty = objectProto.hasOwnProperty;
+function keysIn(object) {
+    if (object == null) {
+        return [];
+    }
+    if (!isObject(object)) {
+        object = Object(object);
+    }
+    var length = object.length;
+    length = length && isLength(length) && (isArray(object) || support.nonEnumArgs && isArguments(object)) && length || 0;
+    var Ctor = object.constructor, index = -1, isProto = typeof Ctor == 'function' && Ctor.prototype === object, result = Array(length), skipIndexes = length > 0;
+    while (++index < length) {
+        result[index] = index + '';
+    }
+    for (var key in object) {
+        if (!(skipIndexes && isIndex(key, length)) && !(key == 'constructor' && (isProto || !hasOwnProperty.call(object, key)))) {
+            result.push(key);
+        }
+    }
+    return result;
+}
+module.exports = keysIn;
+},{"../internal/isIndex":19,"../internal/isLength":21,"../lang/isArguments":25,"../lang/isArray":26,"../lang/isObject":28,"../support":38}],35:[function(require,module,exports){
+var baseValues = require('../internal/baseValues'), keys = require('./keys');
+function values(object) {
+    return baseValues(object, keys(object));
+}
+module.exports = values;
+},{"../internal/baseValues":14,"./keys":33}],36:[function(require,module,exports){
+var baseToString = require('../internal/baseToString'), escapeHtmlChar = require('../internal/escapeHtmlChar');
+var reUnescapedHtml = /[&<>"'`]/g, reHasUnescapedHtml = RegExp(reUnescapedHtml.source);
+function escape(string) {
+    string = baseToString(string);
+    return string && reHasUnescapedHtml.test(string) ? string.replace(reUnescapedHtml, escapeHtmlChar) : string;
+}
+module.exports = escape;
+},{"../internal/baseToString":13,"../internal/escapeHtmlChar":17}],37:[function(require,module,exports){
+var baseToString = require('../internal/baseToString');
+var reRegExpChars = /[.*+?^${}()|[\]\/\\]/g, reHasRegExpChars = RegExp(reRegExpChars.source);
+function escapeRegExp(string) {
+    string = baseToString(string);
+    return string && reHasRegExpChars.test(string) ? string.replace(reRegExpChars, '\\$&') : string;
+}
+module.exports = escapeRegExp;
+},{"../internal/baseToString":13}],38:[function(require,module,exports){
+var isNative = require('./lang/isNative'), root = require('./internal/root');
+var reThis = /\bthis\b/;
+var objectProto = Object.prototype;
+var document = (document = root.window) && document.document;
+var propertyIsEnumerable = objectProto.propertyIsEnumerable;
+var support = {};
+(function (x) {
+    support.funcDecomp = !isNative(root.WinRTError) && reThis.test(function () {
+        return this;
+    });
+    support.funcNames = typeof Function.name == 'string';
+    try {
+        support.dom = document.createDocumentFragment().nodeType === 11;
+    } catch (e) {
+        support.dom = false;
+    }
+    try {
+        support.nonEnumArgs = !propertyIsEnumerable.call(arguments, 1);
+    } catch (e) {
+        support.nonEnumArgs = true;
+    }
+}(0, 0));
+module.exports = support;
+},{"./internal/root":23,"./lang/isNative":27}],39:[function(require,module,exports){
+function identity(value) {
+    return value;
+}
+module.exports = identity;
+},{}],40:[function(require,module,exports){
+var buildCommandPatch = require('./api/command-patch'), buildCommand = require('./api/command'), Node = require('./api/node'), buildSelection = require('./api/selection'), buildSimpleCommand = require('./api/simple-command');
+'use strict';
+module.exports = function Api(scribe) {
+    this.CommandPatch = buildCommandPatch(scribe);
+    this.Command = buildCommand(scribe);
+    this.Node = Node;
+    this.Selection = buildSelection(scribe);
+    this.SimpleCommand = buildSimpleCommand(this, scribe);
+};
+},{"./api/command":42,"./api/command-patch":41,"./api/node":43,"./api/selection":44,"./api/simple-command":45}],41:[function(require,module,exports){
+'use strict';
+module.exports = function (scribe) {
+    function CommandPatch(commandName) {
+        this.commandName = commandName;
+    }
+    CommandPatch.prototype.execute = function (value) {
+        scribe.transactionManager.run(function () {
+            document.execCommand(this.commandName, false, value || null);
+        }.bind(this));
+    };
+    CommandPatch.prototype.queryState = function () {
+        return document.queryCommandState(this.commandName);
+    };
+    CommandPatch.prototype.queryEnabled = function () {
+        return document.queryCommandEnabled(this.commandName);
+    };
+    return CommandPatch;
+};
+},{}],42:[function(require,module,exports){
+'use strict';
+module.exports = function (scribe) {
+    function Command(commandName) {
+        this.commandName = commandName;
+        this.patch = scribe.commandPatches[this.commandName];
+    }
+    Command.prototype.execute = function (value) {
+        if (this.patch) {
+            this.patch.execute(value);
+        } else {
+            scribe.transactionManager.run(function () {
+                document.execCommand(this.commandName, false, value || null);
+            }.bind(this));
+        }
+    };
+    Command.prototype.queryState = function () {
+        if (this.patch) {
+            return this.patch.queryState();
+        } else {
+            return document.queryCommandState(this.commandName);
+        }
+    };
+    Command.prototype.queryEnabled = function () {
+        if (this.patch) {
+            return this.patch.queryEnabled();
+        } else {
+            return document.queryCommandEnabled(this.commandName);
+        }
+    };
+    return Command;
+};
+},{}],43:[function(require,module,exports){
+'use strict';
+function Node(node) {
+    this.node = node;
+}
+Node.prototype.getAncestor = function (rootElement, nodeFilter) {
+    var isTopContainerElement = function (element) {
+        return rootElement === element;
+    };
+    if (isTopContainerElement(this.node)) {
+        return;
+    }
+    var currentNode = this.node.parentNode;
+    while (currentNode && !isTopContainerElement(currentNode)) {
+        if (nodeFilter(currentNode)) {
+            return currentNode;
+        }
+        currentNode = currentNode.parentNode;
+    }
+};
+Node.prototype.nextAll = function () {
+    var all = [];
+    var el = this.node.nextSibling;
+    while (el) {
+        all.push(el);
+        el = el.nextSibling;
+    }
+    return all;
+};
+module.exports = Node;
+},{}],44:[function(require,module,exports){
+var elementHelper = require('../element');
+'use strict';
+module.exports = function (scribe) {
+    function Selection() {
+        var rootDoc = document;
+        var currentElement = scribe.el.parentNode;
+        while (currentElement && currentElement.nodeType !== Node.DOCUMENT_FRAGMENT_NODE && currentElement.nodeType !== Node.DOCUMENT_NODE) {
+            currentElement = currentElement.parentNode;
+        }
+        if (currentElement && currentElement.nodeType === Node.DOCUMENT_FRAGMENT_NODE && currentElement.getSelection) {
+            rootDoc = currentElement;
+        }
+        this.selection = rootDoc.getSelection();
+        if (this.selection.rangeCount && this.selection.anchorNode) {
+            this.range = document.createRange();
+            var reverseRange = document.createRange();
+            this.range.setStart(this.selection.anchorNode, this.selection.anchorOffset);
+            reverseRange.setStart(this.selection.focusNode, this.selection.focusOffset);
+            if (this.range.compareBoundaryPoints(Range.START_TO_START, reverseRange) <= 0) {
+                this.range.setEnd(this.selection.focusNode, this.selection.focusOffset);
+            } else {
+                this.range = reverseRange;
+                this.range.setEnd(this.selection.anchorNode, this.selection.anchorOffset);
+            }
+        }
+    }
+    Selection.prototype.getContaining = function (nodeFilter) {
+        var range = this.range;
+        if (!range) {
+            return;
+        }
+        var node = new scribe.api.Node(this.range.commonAncestorContainer);
+        var isTopContainerElement = node.node && scribe.el === node.node;
+        return !isTopContainerElement && nodeFilter(node.node) ? node.node : node.getAncestor(scribe.el, nodeFilter);
+    };
+    Selection.prototype.placeMarkers = function () {
+        var range = this.range;
+        if (!range) {
+            return;
+        }
+        if (!scribe.el.offsetParent) {
+            return;
+        }
+        var scribeNodeRange = document.createRange();
+        scribeNodeRange.selectNodeContents(scribe.el);
+        var selectionStartWithinScribeElementStart = this.range.compareBoundaryPoints(Range.START_TO_START, scribeNodeRange) >= 0;
+        var selectionEndWithinScribeElementEnd = this.range.compareBoundaryPoints(Range.END_TO_END, scribeNodeRange) <= 0;
+        if (selectionStartWithinScribeElementStart && selectionEndWithinScribeElementEnd) {
+            var startMarker = document.createElement('em');
+            startMarker.classList.add('scribe-marker');
+            var endMarker = document.createElement('em');
+            endMarker.classList.add('scribe-marker');
+            var rangeEnd = this.range.cloneRange();
+            rangeEnd.collapse(false);
+            rangeEnd.insertNode(endMarker);
+            if (endMarker.nextSibling && endMarker.nextSibling.nodeType === Node.TEXT_NODE && endMarker.nextSibling.data === '') {
+                endMarker.parentNode.removeChild(endMarker.nextSibling);
+            }
+            if (endMarker.previousSibling && endMarker.previousSibling.nodeType === Node.TEXT_NODE && endMarker.previousSibling.data === '') {
+                endMarker.parentNode.removeChild(endMarker.previousSibling);
+            }
+            if (!this.range.collapsed) {
+                var rangeStart = this.range.cloneRange();
+                rangeStart.collapse(true);
+                rangeStart.insertNode(startMarker);
+                if (startMarker.nextSibling && startMarker.nextSibling.nodeType === Node.TEXT_NODE && startMarker.nextSibling.data === '') {
+                    startMarker.parentNode.removeChild(startMarker.nextSibling);
+                }
+                if (startMarker.previousSibling && startMarker.previousSibling.nodeType === Node.TEXT_NODE && startMarker.previousSibling.data === '') {
+                    startMarker.parentNode.removeChild(startMarker.previousSibling);
+                }
+            }
+            this.selection.removeAllRanges();
+            this.selection.addRange(this.range);
+        }
+    };
+    Selection.prototype.getMarkers = function () {
+        return scribe.el.querySelectorAll('em.scribe-marker');
+    };
+    Selection.prototype.removeMarkers = function () {
+        var markers = this.getMarkers();
+        Array.prototype.forEach.call(markers, function (marker) {
+            marker.parentNode.removeChild(marker);
+        });
+    };
+    Selection.prototype.selectMarkers = function (keepMarkers) {
+        var markers = this.getMarkers();
+        if (!markers.length) {
+            return;
+        }
+        var newRange = document.createRange();
+        newRange.setStartBefore(markers[0]);
+        if (markers.length >= 2) {
+            newRange.setEndAfter(markers[1]);
+        } else {
+            newRange.setEndAfter(markers[0]);
+        }
+        if (!keepMarkers) {
+            this.removeMarkers();
+        }
+        this.selection.removeAllRanges();
+        this.selection.addRange(newRange);
+    };
+    Selection.prototype.isCaretOnNewLine = function () {
+        function isEmptyInlineElement(node) {
+            var treeWalker = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT, null, false);
+            var currentNode = treeWalker.root;
+            while (currentNode) {
+                var numberOfChildren = currentNode.childNodes.length;
+                if (numberOfChildren > 1 || numberOfChildren === 1 && currentNode.textContent.trim() !== '')
+                    return false;
+                if (numberOfChildren === 0) {
+                    return currentNode.textContent.trim() === '';
+                }
+                currentNode = treeWalker.nextNode();
+            }
+            ;
+        }
+        ;
+        var containerPElement = this.getContaining(function (node) {
+                return node.nodeName === 'P';
+            });
+        if (containerPElement) {
+            return isEmptyInlineElement(containerPElement);
+        } else {
+            return false;
+        }
+    };
+    return Selection;
+};
+},{"../element":48}],45:[function(require,module,exports){
+'use strict';
+module.exports = function (api, scribe) {
+    function SimpleCommand(commandName, nodeName) {
+        scribe.api.Command.call(this, commandName);
+        this._nodeName = nodeName;
+    }
+    SimpleCommand.prototype = Object.create(api.Command.prototype);
+    SimpleCommand.prototype.constructor = SimpleCommand;
+    SimpleCommand.prototype.queryState = function () {
+        var selection = new scribe.api.Selection();
+        return scribe.api.Command.prototype.queryState.call(this) && !!selection.getContaining(function (node) {
+            return node.nodeName === this._nodeName;
+        }.bind(this));
+    };
+    return SimpleCommand;
+};
+},{}],46:[function(require,module,exports){
+var defaults = require('lodash-amd/modern/object/defaults');
+var blockModePlugins = [
+        'setRootPElement',
+        'enforcePElements',
+        'ensureSelectableContainers'
+    ], inlineModePlugins = ['inlineElementsMode'], defaultOptions = {
+        allowBlockElements: true,
+        debug: false,
+        undo: {
+            manager: false,
+            enabled: true,
+            limit: 100,
+            interval: 250
+        },
+        defaultCommandPatches: [
+            'bold',
+            'indent',
+            'insertHTML',
+            'insertList',
+            'outdent',
+            'createLink'
+        ],
+        defaultPlugins: blockModePlugins.concat(inlineModePlugins),
+        defaultFormatters: [
+            'escapeHtmlCharactersFormatter',
+            'replaceNbspCharsFormatter'
+        ]
+    };
+function checkOptions(userSuppliedOptions) {
     var options = userSuppliedOptions || {};
-
-    // Remove invalid plugins
     if (options.defaultPlugins) {
-      options.defaultPlugins    = options.defaultPlugins.filter(filterByPluginExists(defaultOptions.defaultPlugins));
+        options.defaultPlugins = options.defaultPlugins.filter(filterByPluginExists(defaultOptions.defaultPlugins));
     }
-
     if (options.defaultFormatters) {
-      options.defaultFormatters = options.defaultFormatters.filter(filterByPluginExists(defaultOptions.defaultFormatters));
+        options.defaultFormatters = options.defaultFormatters.filter(filterByPluginExists(defaultOptions.defaultFormatters));
     }
-
     return Object.freeze(defaults(options, defaultOptions));
-  }
-
-  /**
-   * Sorts a plugin list by a specified plugin name
-   *
-   * @param  {String} priorityPlugin The plugin name to be given priority
-   * @return {Function}              Sorting function for the given plugin name
-   */
-  function sortByPlugin(priorityPlugin) {
+}
+function sortByPlugin(priorityPlugin) {
     return function (pluginCurrent, pluginNext) {
-      if (pluginCurrent === priorityPlugin) {
-        // pluginCurrent comes before plugin next
-        return -1;
-      } else if (pluginNext === priorityPlugin) {
-        // pluginNext comes before pluginCurrent
-        return 1;
-      }
-
-      // Do no swap
-      return 0;
-    }
-  }
-
-  /**
-   * Filters a list of plugins by block level / inline level mode.
-   *
-   * @param  {Boolean} isBlockLevelMode Whether block level mode is enabled
-   * @return {Function}                 Filtering function based upon the given mode
-   */
-  function filterByBlockLevelMode(isBlockLevelMode) {
+        if (pluginCurrent === priorityPlugin) {
+            return -1;
+        } else if (pluginNext === priorityPlugin) {
+            return 1;
+        }
+        return 0;
+    };
+}
+function filterByBlockLevelMode(isBlockLevelMode) {
     return function (plugin) {
-      return (isBlockLevelMode ? blockModePlugins : inlineModePlugins).indexOf(plugin) !== -1;
-    }
-  }
-
-  /**
-   * Filters a list of plugins by their validity
-   *
-   * @param  {Array<String>} pluginList   List of plugins to check against
-   * @return {Function}                   Filtering function based upon the given list
-   */
-  function filterByPluginExists(pluginList) {
+        return (isBlockLevelMode ? blockModePlugins : inlineModePlugins).indexOf(plugin) !== -1;
+    };
+}
+function filterByPluginExists(pluginList) {
     return function (plugin) {
-      return pluginList.indexOf(plugin) !== -1;
-    }
-  }
-
-  return {
+        return pluginList.indexOf(plugin) !== -1;
+    };
+}
+module.exports = {
     defaultOptions: defaultOptions,
     checkOptions: checkOptions,
     sortByPlugin: sortByPlugin,
     filterByBlockLevelMode: filterByBlockLevelMode,
     filterByPluginExists: filterByPluginExists
-  }
-});
-
-define('scribe',[
-  './plugins/core/plugins',
-  './plugins/core/commands',
-  './plugins/core/formatters',
-  './plugins/core/events',
-  './plugins/core/patches',
-  './api',
-  './transaction-manager',
-  './undo-manager',
-  './event-emitter',
-  './element',
-  './node',
-  'immutable/dist/immutable',
-  './config'
-], function (
-  plugins,
-  commands,
-  formatters,
-  events,
-  patches,
-  Api,
-  buildTransactionManager,
-  UndoManager,
-  EventEmitter,
-  elementHelpers,
-  nodeHelpers,
-  Immutable,
-  config
-) {
-
-  
-
-  function Scribe(el, options) {
+};
+},{"lodash-amd/modern/object/defaults":32}],47:[function(require,module,exports){
+var flatten = require('lodash-amd/modern/array/flatten'), toArray = require('lodash-amd/modern/lang/toArray'), elementHelpers = require('./element'), nodeHelpers = require('./node');
+function observeDomChanges(el, callback) {
+    function includeRealMutations(mutations) {
+        var allChangedNodes = flatten(mutations.map(function (mutation) {
+                var added = toArray(mutation.addedNodes);
+                var removed = toArray(mutation.removedNodes);
+                return added.concat(removed);
+            }));
+        var realChangedNodes = allChangedNodes.filter(function (n) {
+                return !nodeHelpers.isEmptyTextNode(n);
+            }).filter(function (n) {
+                return !elementHelpers.isSelectionMarkerNode(n);
+            });
+        return realChangedNodes.length > 0;
+    }
+    var MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
+    var runningPostMutation = false;
+    var observer = new MutationObserver(function (mutations) {
+            if (!runningPostMutation && includeRealMutations(mutations)) {
+                runningPostMutation = true;
+                try {
+                    callback();
+                } catch (e) {
+                    throw e;
+                } finally {
+                    setTimeout(function () {
+                        runningPostMutation = false;
+                    }, 0);
+                }
+            }
+        });
+    observer.observe(el, {
+        attributes: true,
+        childList: true,
+        subtree: true
+    });
+    return observer;
+}
+module.exports = observeDomChanges;
+},{"./element":48,"./node":50,"lodash-amd/modern/array/flatten":2,"lodash-amd/modern/lang/toArray":30}],48:[function(require,module,exports){
+var contains = require('lodash-amd/modern/collection/contains');
+'use strict';
+var blockElementNames = [
+        'ADDRESS',
+        'ARTICLE',
+        'ASIDE',
+        'AUDIO',
+        'BLOCKQUOTE',
+        'CANVAS',
+        'DD',
+        'DIV',
+        'FIELDSET',
+        'FIGCAPTION',
+        'FIGURE',
+        'FOOTER',
+        'FORM',
+        'H1',
+        'H2',
+        'H3',
+        'H4',
+        'H5',
+        'H6',
+        'HEADER',
+        'HGROUP',
+        'HR',
+        'LI',
+        'NOSCRIPT',
+        'OL',
+        'OUTPUT',
+        'P',
+        'PRE',
+        'SECTION',
+        'TABLE',
+        'TD',
+        'TH',
+        'TFOOT',
+        'UL',
+        'VIDEO'
+    ];
+function isBlockElement(node) {
+    return contains(blockElementNames, node.nodeName);
+}
+function isSelectionMarkerNode(node) {
+    return node.nodeType === Node.ELEMENT_NODE && node.className === 'scribe-marker';
+}
+function isCaretPositionNode(node) {
+    return node.nodeType === Node.ELEMENT_NODE && node.className === 'caret-position';
+}
+function unwrap(node, childNode) {
+    while (childNode.childNodes.length > 0) {
+        node.insertBefore(childNode.childNodes[0], childNode);
+    }
+    node.removeChild(childNode);
+}
+module.exports = {
+    isBlockElement: isBlockElement,
+    isSelectionMarkerNode: isSelectionMarkerNode,
+    isCaretPositionNode: isCaretPositionNode,
+    unwrap: unwrap
+};
+},{"lodash-amd/modern/collection/contains":5}],49:[function(require,module,exports){
+var pull = require('lodash-amd/modern/array/pull'), Immutable = require('immutable/dist/immutable');
+'use strict';
+function EventEmitter() {
+    this._listeners = {};
+}
+EventEmitter.prototype.on = function (eventName, fn) {
+    var listeners = this._listeners[eventName] || Immutable.Set();
+    this._listeners[eventName] = listeners.add(fn);
+};
+EventEmitter.prototype.off = function (eventName, fn) {
+    var listeners = this._listeners[eventName] || Immutable.Set();
+    if (fn) {
+        this._listeners[eventName] = listeners.delete(fn);
+    } else {
+        this._listeners[eventName] = listeners.clear();
+    }
+};
+EventEmitter.prototype.trigger = function (eventName, args) {
+    var events = eventName.split(':');
+    while (!!events.length) {
+        var currentEvent = events.join(':');
+        var listeners = this._listeners[currentEvent] || Immutable.Set();
+        listeners.forEach(function (listener) {
+            listener.apply(null, args);
+        });
+        events.splice(events.length - 1, 1);
+    }
+};
+module.exports = EventEmitter;
+},{"immutable/dist/immutable":1,"lodash-amd/modern/array/pull":4}],50:[function(require,module,exports){
+'use strict';
+function isEmptyTextNode(node) {
+    return node.nodeType === Node.TEXT_NODE && node.textContent === '';
+}
+function insertAfter(newNode, referenceNode) {
+    return referenceNode.parentNode.insertBefore(newNode, referenceNode.nextSibling);
+}
+function removeNode(node) {
+    return node.parentNode.removeChild(node);
+}
+module.exports = {
+    isEmptyTextNode: isEmptyTextNode,
+    insertAfter: insertAfter,
+    removeNode: removeNode
+};
+},{}],51:[function(require,module,exports){
+var indent = require('./commands/indent'), insertList = require('./commands/insert-list'), outdent = require('./commands/outdent'), redo = require('./commands/redo'), subscript = require('./commands/subscript'), superscript = require('./commands/superscript'), undo = require('./commands/undo');
+'use strict';
+module.exports = {
+    indent: indent,
+    insertList: insertList,
+    outdent: outdent,
+    redo: redo,
+    subscript: subscript,
+    superscript: superscript,
+    undo: undo
+};
+},{"./commands/indent":52,"./commands/insert-list":53,"./commands/outdent":54,"./commands/redo":55,"./commands/subscript":56,"./commands/superscript":57,"./commands/undo":58}],52:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var indentCommand = new scribe.api.Command('indent');
+        indentCommand.queryEnabled = function () {
+            var selection = new scribe.api.Selection();
+            var listElement = selection.getContaining(function (element) {
+                    return element.nodeName === 'UL' || element.nodeName === 'OL';
+                });
+            return scribe.api.Command.prototype.queryEnabled.call(this) && scribe.allowsBlockElements() && !listElement;
+        };
+        scribe.commands.indent = indentCommand;
+    };
+};
+},{}],53:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var InsertListCommand = function (commandName) {
+            scribe.api.Command.call(this, commandName);
+        };
+        InsertListCommand.prototype = Object.create(scribe.api.Command.prototype);
+        InsertListCommand.prototype.constructor = InsertListCommand;
+        InsertListCommand.prototype.execute = function (value) {
+            function splitList(listItemElements) {
+                if (listItemElements.length > 0) {
+                    var newListNode = document.createElement(listNode.nodeName);
+                    listItemElements.forEach(function (listItemElement) {
+                        newListNode.appendChild(listItemElement);
+                    });
+                    listNode.parentNode.insertBefore(newListNode, listNode.nextElementSibling);
+                }
+            }
+            if (this.queryState()) {
+                var selection = new scribe.api.Selection();
+                var range = selection.range;
+                var listNode = selection.getContaining(function (node) {
+                        return node.nodeName === 'OL' || node.nodeName === 'UL';
+                    });
+                var listItemElement = selection.getContaining(function (node) {
+                        return node.nodeName === 'LI';
+                    });
+                scribe.transactionManager.run(function () {
+                    if (listItemElement) {
+                        var nextListItemElements = new scribe.api.Node(listItemElement).nextAll();
+                        splitList(nextListItemElements);
+                        selection.placeMarkers();
+                        var pNode = document.createElement('p');
+                        pNode.innerHTML = listItemElement.innerHTML;
+                        listNode.parentNode.insertBefore(pNode, listNode.nextElementSibling);
+                        listItemElement.parentNode.removeChild(listItemElement);
+                    } else {
+                        var selectedListItemElements = Array.prototype.map.call(listNode.querySelectorAll('li'), function (listItemElement) {
+                                return range.intersectsNode(listItemElement) && listItemElement;
+                            }).filter(function (listItemElement) {
+                                return listItemElement;
+                            });
+                        var lastSelectedListItemElement = selectedListItemElements.slice(-1)[0];
+                        var listItemElementsAfterSelection = new scribe.api.Node(lastSelectedListItemElement).nextAll();
+                        splitList(listItemElementsAfterSelection);
+                        selection.placeMarkers();
+                        var documentFragment = document.createDocumentFragment();
+                        selectedListItemElements.forEach(function (listItemElement) {
+                            var pElement = document.createElement('p');
+                            pElement.innerHTML = listItemElement.innerHTML;
+                            documentFragment.appendChild(pElement);
+                        });
+                        listNode.parentNode.insertBefore(documentFragment, listNode.nextElementSibling);
+                        selectedListItemElements.forEach(function (listItemElement) {
+                            listItemElement.parentNode.removeChild(listItemElement);
+                        });
+                    }
+                    if (listNode.childNodes.length === 0) {
+                        listNode.parentNode.removeChild(listNode);
+                    }
+                    selection.selectMarkers();
+                }.bind(this));
+            } else {
+                scribe.api.Command.prototype.execute.call(this, value);
+            }
+        };
+        InsertListCommand.prototype.queryEnabled = function () {
+            return scribe.api.Command.prototype.queryEnabled.call(this) && scribe.allowsBlockElements();
+        };
+        scribe.commands.insertOrderedList = new InsertListCommand('insertOrderedList');
+        scribe.commands.insertUnorderedList = new InsertListCommand('insertUnorderedList');
+    };
+};
+},{}],54:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var outdentCommand = new scribe.api.Command('outdent');
+        outdentCommand.queryEnabled = function () {
+            var selection = new scribe.api.Selection();
+            var listElement = selection.getContaining(function (element) {
+                    return element.nodeName === 'UL' || element.nodeName === 'OL';
+                });
+            return scribe.api.Command.prototype.queryEnabled.call(this) && scribe.allowsBlockElements() && !listElement;
+        };
+        scribe.commands.outdent = outdentCommand;
+    };
+};
+},{}],55:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var redoCommand = new scribe.api.Command('redo');
+        redoCommand.execute = function () {
+            scribe.undoManager.redo();
+        };
+        redoCommand.queryEnabled = function () {
+            return scribe.undoManager.position > 0;
+        };
+        scribe.commands.redo = redoCommand;
+        if (scribe.options.undo.enabled) {
+            scribe.el.addEventListener('keydown', function (event) {
+                if (event.shiftKey && (event.metaKey || event.ctrlKey) && event.keyCode === 90) {
+                    event.preventDefault();
+                    redoCommand.execute();
+                }
+            });
+        }
+    };
+};
+},{}],56:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var subscriptCommand = new scribe.api.Command('subscript');
+        scribe.commands.subscript = subscriptCommand;
+    };
+};
+},{}],57:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var superscriptCommand = new scribe.api.Command('superscript');
+        scribe.commands.superscript = superscriptCommand;
+    };
+};
+},{}],58:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var undoCommand = new scribe.api.Command('undo');
+        undoCommand.execute = function () {
+            scribe.undoManager.undo();
+        };
+        undoCommand.queryEnabled = function () {
+            return scribe.undoManager.position < scribe.undoManager.length;
+        };
+        scribe.commands.undo = undoCommand;
+        if (scribe.options.undo.enabled) {
+            scribe.el.addEventListener('keydown', function (event) {
+                if (!event.shiftKey && (event.metaKey || event.ctrlKey) && event.keyCode === 90) {
+                    event.preventDefault();
+                    undoCommand.execute();
+                }
+            });
+        }
+    };
+};
+},{}],59:[function(require,module,exports){
+var contains = require('lodash-amd/modern/collection/contains'), observeDomChanges = require('../../dom-observer');
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        scribe.el.addEventListener('focus', function placeCaretOnFocus() {
+            var selection = new scribe.api.Selection();
+            if (selection.range) {
+                var isFirefoxBug = scribe.allowsBlockElements() && selection.range.startContainer === scribe.el;
+                if (isFirefoxBug) {
+                    var focusElement = getFirstDeepestChild(scribe.el.firstChild);
+                    var range = selection.range;
+                    range.setStart(focusElement, 0);
+                    range.setEnd(focusElement, 0);
+                    selection.selection.removeAllRanges();
+                    selection.selection.addRange(range);
+                }
+            }
+            function getFirstDeepestChild(node) {
+                var treeWalker = document.createTreeWalker(node, NodeFilter.SHOW_ALL, null, false);
+                var previousNode = treeWalker.currentNode;
+                if (treeWalker.firstChild()) {
+                    if (treeWalker.currentNode.nodeName === 'BR') {
+                        return previousNode;
+                    } else {
+                        return getFirstDeepestChild(treeWalker.currentNode);
+                    }
+                } else {
+                    return treeWalker.currentNode;
+                }
+            }
+        }.bind(scribe));
+        var applyFormatters = function () {
+                if (!scribe._skipFormatters) {
+                    var selection = new scribe.api.Selection();
+                    var isEditorActive = selection.range;
+                    var runFormatters = function () {
+                            if (isEditorActive) {
+                                selection.placeMarkers();
+                            }
+                            scribe.setHTML(scribe._htmlFormatterFactory.format(scribe.getHTML()));
+                            selection.selectMarkers();
+                        }.bind(scribe);
+                    scribe.transactionManager.run(runFormatters);
+                }
+                delete scribe._skipFormatters;
+            }.bind(scribe);
+        observeDomChanges(scribe.el, applyFormatters);
+        if (scribe.allowsBlockElements()) {
+            scribe.el.addEventListener('keydown', function (event) {
+                if (event.keyCode === 13) {
+                    var selection = new scribe.api.Selection();
+                    var range = selection.range;
+                    var headingNode = selection.getContaining(function (node) {
+                            return /^(H[1-6])$/.test(node.nodeName);
+                        });
+                    if (headingNode && range.collapsed) {
+                        var contentToEndRange = range.cloneRange();
+                        contentToEndRange.setEndAfter(headingNode, 0);
+                        var contentToEndFragment = contentToEndRange.cloneContents();
+                        if (contentToEndFragment.firstChild.textContent === '') {
+                            event.preventDefault();
+                            scribe.transactionManager.run(function () {
+                                var pNode = document.createElement('p');
+                                var brNode = document.createElement('br');
+                                pNode.appendChild(brNode);
+                                headingNode.parentNode.insertBefore(pNode, headingNode.nextElementSibling);
+                                range.setStart(pNode, 0);
+                                range.setEnd(pNode, 0);
+                                selection.selection.removeAllRanges();
+                                selection.selection.addRange(range);
+                            });
+                        }
+                    }
+                }
+            });
+        }
+        if (scribe.allowsBlockElements()) {
+            scribe.el.addEventListener('keydown', function (event) {
+                if (event.keyCode === 13 || event.keyCode === 8) {
+                    var selection = new scribe.api.Selection();
+                    var range = selection.range;
+                    if (range.collapsed) {
+                        var containerLIElement = selection.getContaining(function (node) {
+                                return node.nodeName === 'LI';
+                            });
+                        if (containerLIElement && containerLIElement.textContent.trim() === '') {
+                            event.preventDefault();
+                            var listNode = selection.getContaining(function (node) {
+                                    return node.nodeName === 'UL' || node.nodeName === 'OL';
+                                });
+                            var command = scribe.getCommand(listNode.nodeName === 'OL' ? 'insertOrderedList' : 'insertUnorderedList');
+                            command.execute();
+                        }
+                    }
+                }
+            });
+        }
+        scribe.el.addEventListener('paste', function handlePaste(event) {
+            if (event.clipboardData) {
+                event.preventDefault();
+                if (contains(event.clipboardData.types, 'text/html')) {
+                    scribe.insertHTML(event.clipboardData.getData('text/html'));
+                } else {
+                    scribe.insertPlainText(event.clipboardData.getData('text/plain'));
+                }
+            } else {
+                var selection = new scribe.api.Selection();
+                selection.placeMarkers();
+                var bin = document.createElement('div');
+                document.body.appendChild(bin);
+                bin.setAttribute('contenteditable', true);
+                bin.focus();
+                setTimeout(function () {
+                    var data = bin.innerHTML;
+                    bin.parentNode.removeChild(bin);
+                    selection.selectMarkers();
+                    scribe.el.focus();
+                    scribe.insertHTML(data);
+                }, 1);
+            }
+        });
+    };
+};
+},{"../../dom-observer":47,"lodash-amd/modern/collection/contains":5}],60:[function(require,module,exports){
+var replaceNbspCharsFormatter = require('./formatters/html/replace-nbsp-chars'), escapeHtmlCharactersFormatter = require('./formatters/plain-text/escape-html-characters');
+'use strict';
+module.exports = {
+    replaceNbspCharsFormatter: replaceNbspCharsFormatter,
+    escapeHtmlCharactersFormatter: escapeHtmlCharactersFormatter
+};
+},{"./formatters/html/replace-nbsp-chars":63,"./formatters/plain-text/escape-html-characters":64}],61:[function(require,module,exports){
+var last = require('lodash-amd/modern/array/last');
+'use strict';
+function wrapChildNodes(scribe, parentNode) {
+    var groups = Array.prototype.reduce.call(parentNode.childNodes, function (accumulator, binChildNode) {
+            var group = last(accumulator);
+            if (!group) {
+                startNewGroup();
+            } else {
+                var isBlockGroup = scribe.element.isBlockElement(group[0]);
+                if (isBlockGroup === scribe.element.isBlockElement(binChildNode)) {
+                    group.push(binChildNode);
+                } else {
+                    startNewGroup();
+                }
+            }
+            return accumulator;
+            function startNewGroup() {
+                var newGroup = [binChildNode];
+                accumulator.push(newGroup);
+            }
+        }, []);
+    var consecutiveInlineElementsAndTextNodes = groups.filter(function (group) {
+            var isBlockGroup = scribe.element.isBlockElement(group[0]);
+            return !isBlockGroup;
+        });
+    consecutiveInlineElementsAndTextNodes.forEach(function (nodes) {
+        var pElement = document.createElement('p');
+        nodes[0].parentNode.insertBefore(pElement, nodes[0]);
+        nodes.forEach(function (node) {
+            pElement.appendChild(node);
+        });
+    });
+    parentNode._isWrapped = true;
+}
+function traverse(scribe, parentNode) {
+    var treeWalker = document.createTreeWalker(parentNode, NodeFilter.SHOW_ELEMENT, null, false);
+    var node = treeWalker.firstChild();
+    while (node) {
+        if (node.nodeName === 'BLOCKQUOTE' && !node._isWrapped) {
+            wrapChildNodes(scribe, node);
+            traverse(scribe, parentNode);
+            break;
+        }
+        node = treeWalker.nextSibling();
+    }
+}
+module.exports = function () {
+    return function (scribe) {
+        scribe.registerHTMLFormatter('normalize', function (html) {
+            var bin = document.createElement('div');
+            bin.innerHTML = html;
+            wrapChildNodes(scribe, bin);
+            traverse(scribe, bin);
+            return bin.innerHTML;
+        });
+    };
+};
+},{"lodash-amd/modern/array/last":3}],62:[function(require,module,exports){
+var element = require('../../../../element'), contains = require('lodash-amd/modern/collection/contains');
+'use strict';
+var html5VoidElements = [
+        'AREA',
+        'BASE',
+        'BR',
+        'COL',
+        'COMMAND',
+        'EMBED',
+        'HR',
+        'IMG',
+        'INPUT',
+        'KEYGEN',
+        'LINK',
+        'META',
+        'PARAM',
+        'SOURCE',
+        'TRACK',
+        'WBR'
+    ];
+function parentHasNoTextContent(element, node) {
+    if (element.isCaretPositionNode(node)) {
+        return true;
+    } else {
+        return node.parentNode.textContent.trim() === '';
+    }
+}
+function traverse(element, parentNode) {
+    var node = parentNode.firstElementChild;
+    function isEmpty(node) {
+        if (node.children.length === 0 && element.isBlockElement(node) || node.children.length === 1 && element.isSelectionMarkerNode(node.children[0])) {
+            return true;
+        }
+        if (!element.isBlockElement(node) && node.children.length === 0) {
+            return parentHasNoTextContent(element, node);
+        }
+        return false;
+    }
+    while (node) {
+        if (!element.isSelectionMarkerNode(node)) {
+            if (isEmpty(node) && node.textContent.trim() === '' && !contains(html5VoidElements, node.nodeName)) {
+                node.appendChild(document.createElement('br'));
+            } else if (node.children.length > 0) {
+                traverse(element, node);
+            }
+        }
+        node = node.nextElementSibling;
+    }
+}
+module.exports = function () {
+    return function (scribe) {
+        scribe.registerHTMLFormatter('normalize', function (html) {
+            var bin = document.createElement('div');
+            bin.innerHTML = html;
+            traverse(scribe.element, bin);
+            return bin.innerHTML;
+        });
+    };
+};
+},{"../../../../element":48,"lodash-amd/modern/collection/contains":5}],63:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var nbspCharRegExp = /(\s|&nbsp;)+/g;
+        scribe.registerHTMLFormatter('export', function (html) {
+            return html.replace(nbspCharRegExp, ' ');
+        });
+    };
+};
+},{}],64:[function(require,module,exports){
+var escape = require('lodash-amd/modern/string/escape');
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        scribe.registerPlainTextFormatter(escape);
+    };
+};
+},{"lodash-amd/modern/string/escape":36}],65:[function(require,module,exports){
+'use strict';
+function hasContent(rootNode) {
+    var treeWalker = document.createTreeWalker(rootNode, NodeFilter.SHOW_ALL, null, false);
+    while (treeWalker.nextNode()) {
+        if (treeWalker.currentNode) {
+            if (~['br'].indexOf(treeWalker.currentNode.nodeName.toLowerCase()) || treeWalker.currentNode.length > 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+module.exports = function () {
+    return function (scribe) {
+        scribe.el.addEventListener('keydown', function (event) {
+            if (event.keyCode === 13) {
+                var selection = new scribe.api.Selection();
+                var range = selection.range;
+                var blockNode = selection.getContaining(function (node) {
+                        return node.nodeName === 'LI' || /^(H[1-6])$/.test(node.nodeName);
+                    });
+                if (!blockNode) {
+                    event.preventDefault();
+                    scribe.transactionManager.run(function () {
+                        if (scribe.el.lastChild.nodeName === 'BR') {
+                            scribe.el.removeChild(scribe.el.lastChild);
+                        }
+                        var brNode = document.createElement('br');
+                        range.insertNode(brNode);
+                        range.collapse(false);
+                        var contentToEndRange = range.cloneRange();
+                        contentToEndRange.setEndAfter(scribe.el.lastChild, 0);
+                        var contentToEndFragment = contentToEndRange.cloneContents();
+                        if (!hasContent(contentToEndFragment)) {
+                            var bogusBrNode = document.createElement('br');
+                            range.insertNode(bogusBrNode);
+                        }
+                        var newRange = range.cloneRange();
+                        newRange.setStartAfter(brNode, 0);
+                        newRange.setEndAfter(brNode, 0);
+                        selection.selection.removeAllRanges();
+                        selection.selection.addRange(newRange);
+                    });
+                }
+            }
+        }.bind(this));
+        if (scribe.getHTML().trim() === '') {
+            scribe.setContent('');
+        }
+    };
+};
+},{}],66:[function(require,module,exports){
+var boldCommand = require('./patches/commands/bold'), indentCommand = require('./patches/commands/indent'), insertHTMLCommand = require('./patches/commands/insert-html'), insertListCommands = require('./patches/commands/insert-list'), outdentCommand = require('./patches/commands/outdent'), createLinkCommand = require('./patches/commands/create-link'), events = require('./patches/events');
+'use strict';
+module.exports = {
+    commands: {
+        bold: boldCommand,
+        indent: indentCommand,
+        insertHTML: insertHTMLCommand,
+        insertList: insertListCommands,
+        outdent: outdentCommand,
+        createLink: createLinkCommand
+    },
+    events: events
+};
+},{"./patches/commands/bold":67,"./patches/commands/create-link":68,"./patches/commands/indent":69,"./patches/commands/insert-html":70,"./patches/commands/insert-list":71,"./patches/commands/outdent":72,"./patches/events":73}],67:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var boldCommand = new scribe.api.CommandPatch('bold');
+        boldCommand.queryEnabled = function () {
+            var selection = new scribe.api.Selection();
+            var headingNode = selection.getContaining(function (node) {
+                    return /^(H[1-6])$/.test(node.nodeName);
+                });
+            return scribe.api.CommandPatch.prototype.queryEnabled.apply(this, arguments) && !headingNode;
+        };
+        scribe.commandPatches.bold = boldCommand;
+    };
+};
+},{}],68:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var createLinkCommand = new scribe.api.CommandPatch('createLink');
+        scribe.commandPatches.createLink = createLinkCommand;
+        createLinkCommand.execute = function (value) {
+            var selection = new scribe.api.Selection();
+            if (selection.range.collapsed) {
+                var aElement = document.createElement('a');
+                aElement.setAttribute('href', value);
+                aElement.textContent = value;
+                selection.range.insertNode(aElement);
+                var newRange = document.createRange();
+                newRange.setStartBefore(aElement);
+                newRange.setEndAfter(aElement);
+                selection.selection.removeAllRanges();
+                selection.selection.addRange(newRange);
+            } else {
+                scribe.api.CommandPatch.prototype.execute.call(this, value);
+            }
+        };
+    };
+};
+},{}],69:[function(require,module,exports){
+'use strict';
+var INVISIBLE_CHAR = '\ufeff';
+module.exports = function () {
+    return function (scribe) {
+        var indentCommand = new scribe.api.CommandPatch('indent');
+        indentCommand.execute = function (value) {
+            scribe.transactionManager.run(function () {
+                var selection = new scribe.api.Selection();
+                var range = selection.range;
+                var isCaretOnNewLine = range.commonAncestorContainer.nodeName === 'P' && range.commonAncestorContainer.innerHTML === '<br>';
+                if (isCaretOnNewLine) {
+                    var textNode = document.createTextNode(INVISIBLE_CHAR);
+                    range.insertNode(textNode);
+                    range.setStart(textNode, 0);
+                    range.setEnd(textNode, 0);
+                    selection.selection.removeAllRanges();
+                    selection.selection.addRange(range);
+                }
+                scribe.api.CommandPatch.prototype.execute.call(this, value);
+                selection = new scribe.api.Selection();
+                var blockquoteNode = selection.getContaining(function (node) {
+                        return node.nodeName === 'BLOCKQUOTE';
+                    });
+                if (blockquoteNode) {
+                    blockquoteNode.removeAttribute('style');
+                }
+            }.bind(this));
+        };
+        scribe.commandPatches.indent = indentCommand;
+    };
+};
+},{}],70:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var insertHTMLCommandPatch = new scribe.api.CommandPatch('insertHTML');
+        var element = scribe.element;
+        insertHTMLCommandPatch.execute = function (value) {
+            scribe.transactionManager.run(function () {
+                scribe.api.CommandPatch.prototype.execute.call(this, value);
+                sanitize(scribe.el);
+                function sanitize(parentNode) {
+                    var treeWalker = document.createTreeWalker(parentNode, NodeFilter.SHOW_ELEMENT, null, false);
+                    var node = treeWalker.firstChild();
+                    if (!node) {
+                        return;
+                    }
+                    do {
+                        if (node.nodeName === 'SPAN') {
+                            element.unwrap(parentNode, node);
+                        } else {
+                            node.style.lineHeight = null;
+                            if (node.getAttribute('style') === '') {
+                                node.removeAttribute('style');
+                            }
+                        }
+                        sanitize(node);
+                    } while (node = treeWalker.nextSibling());
+                }
+            }.bind(this));
+        };
+        scribe.commandPatches.insertHTML = insertHTMLCommandPatch;
+    };
+};
+},{}],71:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var element = scribe.element;
+        var nodeHelpers = scribe.node;
+        var InsertListCommandPatch = function (commandName) {
+            scribe.api.CommandPatch.call(this, commandName);
+        };
+        InsertListCommandPatch.prototype = Object.create(scribe.api.CommandPatch.prototype);
+        InsertListCommandPatch.prototype.constructor = InsertListCommandPatch;
+        InsertListCommandPatch.prototype.execute = function (value) {
+            scribe.transactionManager.run(function () {
+                scribe.api.CommandPatch.prototype.execute.call(this, value);
+                if (this.queryState()) {
+                    var selection = new scribe.api.Selection();
+                    var listElement = selection.getContaining(function (node) {
+                            return node.nodeName === 'OL' || node.nodeName === 'UL';
+                        });
+                    if (listElement.nextElementSibling && listElement.nextElementSibling.childNodes.length === 0) {
+                        nodeHelpers.removeNode(listElement.nextElementSibling);
+                    }
+                    if (listElement) {
+                        var listParentNode = listElement.parentNode;
+                        if (listParentNode && /^(H[1-6]|P)$/.test(listParentNode.nodeName)) {
+                            selection.placeMarkers();
+                            nodeHelpers.insertAfter(listElement, listParentNode);
+                            selection.selectMarkers();
+                            if (listParentNode.childNodes.length === 2 && nodeHelpers.isEmptyTextNode(listParentNode.firstChild)) {
+                                nodeHelpers.removeNode(listParentNode);
+                            }
+                            if (listParentNode.childNodes.length === 0) {
+                                nodeHelpers.removeNode(listParentNode);
+                            }
+                        }
+                    }
+                    var listItemElements = Array.prototype.slice.call(listElement.childNodes);
+                    listItemElements.forEach(function (listItemElement) {
+                        var listItemElementChildNodes = Array.prototype.slice.call(listItemElement.childNodes);
+                        listItemElementChildNodes.forEach(function (listElementChildNode) {
+                            if (listElementChildNode.nodeName === 'SPAN') {
+                                var spanElement = listElementChildNode;
+                                element.unwrap(listItemElement, spanElement);
+                            } else if (listElementChildNode.nodeType === Node.ELEMENT_NODE) {
+                                listElementChildNode.style.lineHeight = null;
+                                if (listElementChildNode.getAttribute('style') === '') {
+                                    listElementChildNode.removeAttribute('style');
+                                }
+                            }
+                        });
+                    });
+                }
+            }.bind(this));
+        };
+        scribe.commandPatches.insertOrderedList = new InsertListCommandPatch('insertOrderedList');
+        scribe.commandPatches.insertUnorderedList = new InsertListCommandPatch('insertUnorderedList');
+    };
+};
+},{}],72:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var outdentCommand = new scribe.api.CommandPatch('outdent');
+        outdentCommand.execute = function () {
+            scribe.transactionManager.run(function () {
+                var selection = new scribe.api.Selection();
+                var range = selection.range;
+                var blockquoteNode = selection.getContaining(function (node) {
+                        return node.nodeName === 'BLOCKQUOTE';
+                    });
+                if (range.commonAncestorContainer.nodeName === 'BLOCKQUOTE') {
+                    selection.placeMarkers();
+                    selection.selectMarkers(true);
+                    var selectedNodes = range.cloneContents();
+                    blockquoteNode.parentNode.insertBefore(selectedNodes, blockquoteNode);
+                    range.deleteContents();
+                    selection.selectMarkers();
+                    if (blockquoteNode.textContent === '') {
+                        blockquoteNode.parentNode.removeChild(blockquoteNode);
+                    }
+                } else {
+                    var pNode = selection.getContaining(function (node) {
+                            return node.nodeName === 'P';
+                        });
+                    if (pNode) {
+                        var nextSiblingNodes = new scribe.api.Node(pNode).nextAll();
+                        if (nextSiblingNodes.length) {
+                            var newContainerNode = document.createElement(blockquoteNode.nodeName);
+                            nextSiblingNodes.forEach(function (siblingNode) {
+                                newContainerNode.appendChild(siblingNode);
+                            });
+                            blockquoteNode.parentNode.insertBefore(newContainerNode, blockquoteNode.nextElementSibling);
+                        }
+                        selection.placeMarkers();
+                        blockquoteNode.parentNode.insertBefore(pNode, blockquoteNode.nextElementSibling);
+                        selection.selectMarkers();
+                        if (blockquoteNode.innerHTML === '') {
+                            blockquoteNode.parentNode.removeChild(blockquoteNode);
+                        }
+                    } else {
+                        scribe.api.CommandPatch.prototype.execute.call(this);
+                    }
+                }
+            }.bind(this));
+        };
+        scribe.commandPatches.outdent = outdentCommand;
+    };
+};
+},{}],73:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        var element = scribe.element;
+        if (scribe.allowsBlockElements()) {
+            scribe.el.addEventListener('keyup', function (event) {
+                if (event.keyCode === 8 || event.keyCode === 46) {
+                    var selection = new scribe.api.Selection();
+                    var containerPElement = selection.getContaining(function (node) {
+                            return node.nodeName === 'P';
+                        });
+                    if (containerPElement) {
+                        scribe.transactionManager.run(function () {
+                            selection.placeMarkers();
+                            var pElementChildNodes = Array.prototype.slice.call(containerPElement.childNodes);
+                            pElementChildNodes.forEach(function (pElementChildNode) {
+                                if (pElementChildNode.nodeName === 'SPAN') {
+                                    var spanElement = pElementChildNode;
+                                    element.unwrap(containerPElement, spanElement);
+                                } else if (pElementChildNode.nodeType === Node.ELEMENT_NODE) {
+                                    pElementChildNode.style.lineHeight = null;
+                                    if (pElementChildNode.getAttribute('style') === '') {
+                                        pElementChildNode.removeAttribute('style');
+                                    }
+                                }
+                            });
+                            selection.selectMarkers();
+                        }, true);
+                    }
+                }
+            });
+        }
+    };
+};
+},{}],74:[function(require,module,exports){
+var setRootPElement = require('./set-root-p-element'), enforcePElements = require('./formatters/html/enforce-p-elements'), ensureSelectableContainers = require('./formatters/html/ensure-selectable-containers'), inlineElementsMode = require('./inline-elements-mode');
+'use strict';
+module.exports = {
+    setRootPElement: setRootPElement,
+    enforcePElements: enforcePElements,
+    ensureSelectableContainers: ensureSelectableContainers,
+    inlineElementsMode: inlineElementsMode
+};
+},{"./formatters/html/enforce-p-elements":61,"./formatters/html/ensure-selectable-containers":62,"./inline-elements-mode":65,"./set-root-p-element":75}],75:[function(require,module,exports){
+'use strict';
+module.exports = function () {
+    return function (scribe) {
+        if (scribe.getHTML().trim() === '') {
+            scribe.setContent('<p><br></p>');
+        }
+    };
+};
+},{}],76:[function(require,module,exports){
+var assign = require('lodash-amd/modern/object/assign');
+'use strict';
+module.exports = function (scribe) {
+    function TransactionManager() {
+        this.history = [];
+    }
+    assign(TransactionManager.prototype, {
+        start: function () {
+            this.history.push(1);
+        },
+        end: function () {
+            this.history.pop();
+            if (this.history.length === 0) {
+                scribe.pushHistory();
+                scribe.trigger('content-changed');
+            }
+        },
+        run: function (transaction, forceMerge) {
+            this.start();
+            try {
+                if (transaction) {
+                    transaction();
+                }
+            } finally {
+                scribe._forceMerge = forceMerge === true;
+                this.end();
+                scribe._forceMerge = false;
+            }
+        }
+    });
+    return TransactionManager;
+};
+},{"lodash-amd/modern/object/assign":31}],77:[function(require,module,exports){
+'use strict';
+function UndoManager(limit, undoScopeHost) {
+    this._stack = [];
+    this._limit = limit;
+    this._fireEvent = typeof CustomEvent != 'undefined' && undoScopeHost && undoScopeHost.dispatchEvent;
+    this._ush = undoScopeHost;
+    this.position = 0;
+    this.length = 0;
+}
+UndoManager.prototype.transact = function (transaction, merge) {
+    if (arguments.length < 2) {
+        throw new TypeError('Not enough arguments to UndoManager.transact.');
+    }
+    transaction.execute();
+    this._stack.splice(0, this.position);
+    if (merge && this.length) {
+        this._stack[0].push(transaction);
+    } else {
+        this._stack.unshift([transaction]);
+    }
+    this.position = 0;
+    if (this._limit && this._stack.length > this._limit) {
+        this.length = this._stack.length = this._limit;
+    } else {
+        this.length = this._stack.length;
+    }
+    if (this._fireEvent) {
+        this._ush.dispatchEvent(new CustomEvent('DOMTransaction', {
+            detail: { transactions: this._stack[0].slice() },
+            bubbles: true,
+            cancelable: false
+        }));
+    }
+};
+UndoManager.prototype.undo = function () {
+    if (this.position < this.length) {
+        for (var i = this._stack[this.position].length - 1; i >= 0; i--) {
+            this._stack[this.position][i].undo();
+        }
+        this.position++;
+        if (this._fireEvent) {
+            this._ush.dispatchEvent(new CustomEvent('undo', {
+                detail: { transactions: this._stack[this.position - 1].slice() },
+                bubbles: true,
+                cancelable: false
+            }));
+        }
+    }
+};
+UndoManager.prototype.redo = function () {
+    if (this.position > 0) {
+        for (var i = 0, n = this._stack[this.position - 1].length; i < n; i++) {
+            this._stack[this.position - 1][i].redo();
+        }
+        this.position--;
+        if (this._fireEvent) {
+            this._ush.dispatchEvent(new CustomEvent('redo', {
+                detail: { transactions: this._stack[this.position].slice() },
+                bubbles: true,
+                cancelable: false
+            }));
+        }
+    }
+};
+UndoManager.prototype.item = function (index) {
+    if (index >= 0 && index < this.length) {
+        return this._stack[index].slice();
+    }
+    return null;
+};
+UndoManager.prototype.clearUndo = function () {
+    this._stack.length = this.length = this.position;
+};
+UndoManager.prototype.clearRedo = function () {
+    this._stack.splice(0, this.position);
+    this.position = 0;
+    this.length = this._stack.length;
+};
+module.exports = UndoManager;
+},{}],78:[function(require,module,exports){
+var plugins = require('./plugins/core/plugins'), commands = require('./plugins/core/commands'), formatters = require('./plugins/core/formatters'), events = require('./plugins/core/events'), patches = require('./plugins/core/patches'), Api = require('./api'), buildTransactionManager = require('./transaction-manager'), UndoManager = require('./undo-manager'), EventEmitter = require('./event-emitter'), elementHelpers = require('./element'), nodeHelpers = require('./node'), Immutable = require('immutable/dist/immutable'), config = require('./config');
+'use strict';
+function Scribe(el, options) {
     EventEmitter.call(this);
-
     this.el = el;
     this.commands = {};
-
     this.options = config.checkOptions(options);
-
     this.commandPatches = {};
     this._plainTextFormatterFactory = new FormatterFactory();
     this._htmlFormatterFactory = new HTMLFormatterFactory();
-
     this.api = new Api(this);
-
     this.node = nodeHelpers;
     this.element = elementHelpers;
-
     this.Immutable = Immutable;
-
     var TransactionManager = buildTransactionManager(this);
     this.transactionManager = new TransactionManager();
-
-    //added for explicit checking later eg if (scribe.undoManager) { ... }
     this.undoManager = false;
     if (this.options.undo.enabled) {
-      if (this.options.undo.manager) {
-        this.undoManager = this.options.undo.manager;
-      }
-      else {
-        this.undoManager = new UndoManager(this.options.undo.limit, this.el);
-      }
-      this._merge = false;
-      this._forceMerge = false;
-      this._mergeTimer = 0;
-      this._lastItem = {content: ''};
+        if (this.options.undo.manager) {
+            this.undoManager = this.options.undo.manager;
+        } else {
+            this.undoManager = new UndoManager(this.options.undo.limit, this.el);
+        }
+        this._merge = false;
+        this._forceMerge = false;
+        this._mergeTimer = 0;
+        this._lastItem = { content: '' };
     }
-
     this.setHTML(this.getHTML());
-
     this.el.setAttribute('contenteditable', true);
-
     this.el.addEventListener('input', function () {
-      /**
-       * This event triggers when either the user types something or a native
-       * command is executed which causes the content to change (i.e.
-       * `document.execCommand('bold')`). We can't wrap a transaction around
-       * these actions, so instead we run the transaction in this event.
-       */
-      this.transactionManager.run();
+        this.transactionManager.run();
     }.bind(this), false);
-
-    /**
-     * Core Plugins
-     */
-    var corePlugins = Immutable.OrderedSet(this.options.defaultPlugins)
-      .sort(config.sortByPlugin('setRootPElement')) // Ensure `setRootPElement` is always loaded first
-      .filter(config.filterByBlockLevelMode(this.allowsBlockElements()))
-      .map(function (plugin) { return plugins[plugin]; });
-
-    // Formatters
-    var defaultFormatters = Immutable.List(this.options.defaultFormatters)
-    .filter(function (formatter) { return !!formatters[formatter]; })
-    .map(function (formatter) { return formatters[formatter]; });
-
-    // Patches
-
-    var defaultPatches = Immutable.List.of(
-      patches.events
-    );
-
-    var defaultCommandPatches = Immutable.List(this.options.defaultCommandPatches).map(function(patch) { return patches.commands[patch]; });
-
-    var defaultCommands = Immutable.List.of(
-      'indent',
-      'insertList',
-      'outdent',
-      'redo',
-      'subscript',
-      'superscript',
-      'undo'
-    ).map(function(command) { return commands[command]; });
-
-    var allPlugins = Immutable.List().concat(
-      corePlugins,
-      defaultFormatters,
-      defaultPatches,
-      defaultCommandPatches,
-      defaultCommands);
-
-    allPlugins.forEach(function(plugin) {
-      this.use(plugin());
+    var corePlugins = Immutable.OrderedSet(this.options.defaultPlugins).sort(config.sortByPlugin('setRootPElement')).filter(config.filterByBlockLevelMode(this.allowsBlockElements())).map(function (plugin) {
+            return plugins[plugin];
+        });
+    var defaultFormatters = Immutable.List(this.options.defaultFormatters).filter(function (formatter) {
+            return !!formatters[formatter];
+        }).map(function (formatter) {
+            return formatters[formatter];
+        });
+    var defaultPatches = Immutable.List.of(patches.events);
+    var defaultCommandPatches = Immutable.List(this.options.defaultCommandPatches).map(function (patch) {
+            return patches.commands[patch];
+        });
+    var defaultCommands = Immutable.List.of('indent', 'insertList', 'outdent', 'redo', 'subscript', 'superscript', 'undo').map(function (command) {
+            return commands[command];
+        });
+    var allPlugins = Immutable.List().concat(corePlugins, defaultFormatters, defaultPatches, defaultCommandPatches, defaultCommands);
+    allPlugins.forEach(function (plugin) {
+        this.use(plugin());
     }.bind(this));
-
     this.use(events());
-  }
-
-  Scribe.prototype = Object.create(EventEmitter.prototype);
-
-  // For plugins
-  // TODO: tap combinator?
-  Scribe.prototype.use = function (configurePlugin) {
+}
+Scribe.prototype = Object.create(EventEmitter.prototype);
+Scribe.prototype.use = function (configurePlugin) {
     configurePlugin(this);
     return this;
-  };
-
-  Scribe.prototype.setHTML = function (html, skipFormatters) {
+};
+Scribe.prototype.setHTML = function (html, skipFormatters) {
     this._lastItem.content = html;
-
     if (skipFormatters) {
-      this._skipFormatters = true;
+        this._skipFormatters = true;
     }
-    // IE11: Setting HTML to the value it already has causes breakages elsewhere (see #336)
     if (this.el.innerHTML !== html) {
-      this.el.innerHTML = html;
+        this.el.innerHTML = html;
     }
-  };
-
-  Scribe.prototype.getHTML = function () {
+};
+Scribe.prototype.getHTML = function () {
     return this.el.innerHTML;
-  };
-
-  Scribe.prototype.getContent = function () {
-    // Remove bogus BR element for Firefox — see explanation in BR mode files.
+};
+Scribe.prototype.getContent = function () {
     return this._htmlFormatterFactory.formatForExport(this.getHTML().replace(/<br>$/, ''));
-  };
-
-  Scribe.prototype.getTextContent = function () {
+};
+Scribe.prototype.getTextContent = function () {
     return this.el.textContent;
-  };
-
-  Scribe.prototype.pushHistory = function () {
-    /**
-     * Chrome and Firefox: If we did push to the history, this would break
-     * browser magic around `Document.queryCommandState` (http://jsbin.com/eDOxacI/1/edit?js,console,output).
-     * This happens when doing any DOM manipulation.
-     */
+};
+Scribe.prototype.pushHistory = function () {
     var scribe = this;
-
     if (scribe.options.undo.enabled) {
-      // Get scribe previous content, and strip markers.
-      var lastContentNoMarkers = scribe._lastItem.content.replace(/<em class="scribe-marker">[^<]*?<\/em>/g, '');
-
-      // We only want to push the history if the content actually changed.
-      if (scribe.getHTML() !== lastContentNoMarkers) {
-        var selection = new scribe.api.Selection();
-
-        selection.placeMarkers();
-        var content = scribe.getHTML();
-        selection.removeMarkers();
-
-        // Checking if there is a need to merge, and that the previous history item
-        // is the last history item of the same scribe instance.
-        // It is possible the last transaction is not for the same instance, or
-        // even not a scribe transaction (e.g. when using a shared undo manager).
-        var previousItem = scribe.undoManager.item(scribe.undoManager.position);
-        if ((scribe._merge || scribe._forceMerge) && previousItem && scribe._lastItem == previousItem[0]) {
-          // If so, merge manually with the last item to save more memory space.
-          scribe._lastItem.content = content;
+        var lastContentNoMarkers = scribe._lastItem.content.replace(/<em class="scribe-marker">[^<]*?<\/em>/g, '');
+        if (scribe.getHTML() !== lastContentNoMarkers) {
+            var selection = new scribe.api.Selection();
+            selection.placeMarkers();
+            var content = scribe.getHTML();
+            selection.removeMarkers();
+            var previousItem = scribe.undoManager.item(scribe.undoManager.position);
+            if ((scribe._merge || scribe._forceMerge) && previousItem && scribe._lastItem == previousItem[0]) {
+                scribe._lastItem.content = content;
+            } else {
+                scribe._lastItem = {
+                    previousItem: scribe._lastItem,
+                    content: content,
+                    scribe: scribe,
+                    execute: function () {
+                    },
+                    undo: function () {
+                        this.scribe.restoreFromHistory(this.previousItem);
+                    },
+                    redo: function () {
+                        this.scribe.restoreFromHistory(this);
+                    }
+                };
+                scribe.undoManager.transact(scribe._lastItem, false);
+            }
+            clearTimeout(scribe._mergeTimer);
+            scribe._merge = true;
+            scribe._mergeTimer = setTimeout(function () {
+                scribe._merge = false;
+            }, scribe.options.undo.interval);
+            return true;
         }
-        else {
-          // Otherwise, create a new history item, and register it as a new transaction
-          scribe._lastItem = {
-            previousItem: scribe._lastItem,
-            content: content,
-            scribe: scribe,
-            execute: function () { },
-            undo: function () { this.scribe.restoreFromHistory(this.previousItem); },
-            redo: function () { this.scribe.restoreFromHistory(this); }
-          };
-
-          scribe.undoManager.transact(scribe._lastItem, false);
-        }
-
-        // Merge next transaction if it happens before the interval option, otherwise don't merge.
-        clearTimeout(scribe._mergeTimer);
-        scribe._merge = true;
-        scribe._mergeTimer = setTimeout(function() { scribe._merge = false; }, scribe.options.undo.interval);
-
-        return true;
-      }
     }
-
     return false;
-  };
-
-  Scribe.prototype.getCommand = function (commandName) {
+};
+Scribe.prototype.getCommand = function (commandName) {
     return this.commands[commandName] || this.commandPatches[commandName] || new this.api.Command(commandName);
-  };
-
-  Scribe.prototype.restoreFromHistory = function (historyItem) {
+};
+Scribe.prototype.restoreFromHistory = function (historyItem) {
     this._lastItem = historyItem;
-
     this.setHTML(historyItem.content, true);
-
-    // Restore the selection
     var selection = new this.api.Selection();
     selection.selectMarkers();
-
-    // Because we skip the formatters, a transaction is not run, so we have to
-    // emit this event ourselves.
     this.trigger('content-changed');
-  };
-
-  // This will most likely be moved to another object eventually
-  Scribe.prototype.allowsBlockElements = function () {
+};
+Scribe.prototype.allowsBlockElements = function () {
     return this.options.allowBlockElements;
-  };
-
-  Scribe.prototype.setContent = function (content) {
-    if (! this.allowsBlockElements()) {
-      // Set bogus BR element for Firefox — see explanation in BR mode files.
-      content = content + '<br>';
+};
+Scribe.prototype.setContent = function (content) {
+    if (!this.allowsBlockElements()) {
+        content = content + '<br>';
     }
-
     this.setHTML(content);
-
     this.trigger('content-changed');
-  };
-
-  Scribe.prototype.insertPlainText = function (plainText) {
+};
+Scribe.prototype.insertPlainText = function (plainText) {
     this.insertHTML('<p>' + this._plainTextFormatterFactory.format(plainText) + '</p>');
-  };
-
-  Scribe.prototype.insertHTML = function (html) {
-    /**
-     * When pasting text from Google Docs in both Chrome and Firefox,
-     * the resulting text will be wrapped in a B tag. So it would look
-     * something like <b><p>Text</p></b>, which is invalid HTML. The command
-     * insertHTML will then attempt to fix this content by moving the B tag
-     * inside the P. The result is: <p><b></b></p><p>Text</p>, which is valid
-     * but means an extra P is inserted into the text. To avoid this we run the
-     * formatters before the insertHTML command as the formatter will
-     * unwrap the P and delete the B tag. It is acceptable to remove invalid
-     * HTML as Scribe should only accept valid HTML.
-     *
-     * See http://jsbin.com/cayosada/3/edit for more
-     **/
-
-    // TODO: error if the selection is not within the Scribe instance? Or
-    // focus the Scribe instance if it is not already focused?
+};
+Scribe.prototype.insertHTML = function (html) {
     this.getCommand('insertHTML').execute(this._htmlFormatterFactory.format(html));
-  };
-
-  Scribe.prototype.isDebugModeEnabled = function () {
+};
+Scribe.prototype.isDebugModeEnabled = function () {
     return this.options.debug;
-  };
-
-  /**
-   * Applies HTML formatting to all editor text.
-   * @param {String} phase sanitize/normalize/export are the standard phases
-   * @param {Function} fn Function that takes the current editor HTML and returns a formatted version.
-   */
-  Scribe.prototype.registerHTMLFormatter = function (phase, formatter) {
-    this._htmlFormatterFactory.formatters[phase]
-      = this._htmlFormatterFactory.formatters[phase].push(formatter);
-  };
-
-  Scribe.prototype.registerPlainTextFormatter = function (formatter) {
-    this._plainTextFormatterFactory.formatters
-      = this._plainTextFormatterFactory.formatters.push(formatter);
-  };
-
-  // TODO: abstract
-  function FormatterFactory() {
+};
+Scribe.prototype.registerHTMLFormatter = function (phase, formatter) {
+    this._htmlFormatterFactory.formatters[phase] = this._htmlFormatterFactory.formatters[phase].push(formatter);
+};
+Scribe.prototype.registerPlainTextFormatter = function (formatter) {
+    this._plainTextFormatterFactory.formatters = this._plainTextFormatterFactory.formatters.push(formatter);
+};
+function FormatterFactory() {
     this.formatters = Immutable.List();
-  }
-
-  FormatterFactory.prototype.format = function (html) {
-    // Map the object to an array: Array[Formatter]
+}
+FormatterFactory.prototype.format = function (html) {
     var formatted = this.formatters.reduce(function (formattedData, formatter) {
-      return formatter(formattedData);
-    }, html);
-
+            return formatter(formattedData);
+        }, html);
     return formatted;
-  };
-
-  function HTMLFormatterFactory() {
-    // Define phases
-    // For a list of formatters, see https://github.com/guardian/scribe/issues/126
+};
+function HTMLFormatterFactory() {
     this.formatters = {
-      // Configurable sanitization of the HTML, e.g. converting/filter/removing
-      // elements
-      sanitize: Immutable.List(),
-      // Normalize content to ensure it is ready for interaction
-      normalize: Immutable.List(),
-      'export': Immutable.List()
+        sanitize: Immutable.List(),
+        normalize: Immutable.List(),
+        'export': Immutable.List()
     };
-  }
-
-  HTMLFormatterFactory.prototype = Object.create(FormatterFactory.prototype);
-  HTMLFormatterFactory.prototype.constructor = HTMLFormatterFactory;
-
-  HTMLFormatterFactory.prototype.format = function (html) {
+}
+HTMLFormatterFactory.prototype = Object.create(FormatterFactory.prototype);
+HTMLFormatterFactory.prototype.constructor = HTMLFormatterFactory;
+HTMLFormatterFactory.prototype.format = function (html) {
     var formatters = this.formatters.sanitize.concat(this.formatters.normalize);
-
     var formatted = formatters.reduce(function (formattedData, formatter) {
-      return formatter(formattedData);
-    }, html);
-
+            return formatter(formattedData);
+        }, html);
     return formatted;
-  };
-
-  HTMLFormatterFactory.prototype.formatForExport = function (html) {
+};
+HTMLFormatterFactory.prototype.formatForExport = function (html) {
     return this.formatters['export'].reduce(function (formattedData, formatter) {
-      return formatter(formattedData);
+        return formatter(formattedData);
     }, html);
-  };
-
-  return Scribe;
-
-});
-
-
-//# sourceMappingURL=scribe.js.map
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}]},{},[1])(1)
+};
+module.exports = Scribe;
+},{"./api":40,"./config":46,"./element":48,"./event-emitter":49,"./node":50,"./plugins/core/commands":51,"./plugins/core/events":59,"./plugins/core/formatters":60,"./plugins/core/patches":66,"./plugins/core/plugins":74,"./transaction-manager":76,"./undo-manager":77,"immutable/dist/immutable":1}]},{},[78])(78)
 });

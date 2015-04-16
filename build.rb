@@ -11,9 +11,9 @@ plugins = JSON.parse( File.read('bower.json') )["dependencies"].keys
 
 plugins.delete("scribe")
 
-`browserify vendor/scribe/scribe.js -s Scribe > dist/scribe.js`
+`browserify --global-transform deamdify -s Scribe node_modules/scribe-editor > dist/scribe.js`
 
 plugins.each do |name|
   puts "- processing #{name}"
-  `browserify vendor/#{name}/#{name}.js -s #{name} > dist/#{name}.js`
+  `browserify --global-transform deamdify  node_modules/#{name} -s #{name} > dist/#{name}.js`
 end
