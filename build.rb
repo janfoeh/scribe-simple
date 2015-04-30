@@ -7,9 +7,7 @@ dist_dir = File.expand_path("../dist", __FILE__)
 
 FileUtils.rm_rf Dir.glob("#{dist_dir}/*")
 
-plugins = JSON.parse( File.read('bower.json') )["dependencies"].keys
-
-plugins.delete("scribe")
+plugins = JSON.parse( File.read('package.json') )["dependencies"].keys.select! { |key| key != 'scribe-editor' && /^scribe-/ =~ key }
 
 `browserify --global-transform deamdify -s Scribe node_modules/scribe-editor > dist/scribe.js`
 
